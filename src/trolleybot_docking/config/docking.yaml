@@ -1,0 +1,27 @@
+# Nav2 opennav_docking server config (Phase 5).
+# NOTE: `SimpleChargingDock` is used here as a placeholder. Replace `trolley_dock`
+# with a custom dock plugin that derives the dock pose from the AprilTag detection
+# so the final drive-under uses live vision feedback.
+docking_server:
+  ros__parameters:
+    use_sim_time: true
+    controller_frequency: 20.0
+    initial_perception_timeout: 5.0
+    wait_charge_timeout: 5.0
+    dock_approach_timeout: 30.0
+    undock_linear_tolerance: 0.05
+    undock_angular_tolerance: 0.05
+
+    dock_plugins: ["trolley_dock"]
+    trolley_dock:
+      plugin: opennav_docking::SimpleChargingDock
+      docking_threshold: 0.05
+      staging_x_offset: -0.7
+      use_external_detection_pose: true
+      external_detection_timeout: 1.0
+
+    docks: ["trolley_1"]
+    trolley_1:
+      type: trolley_dock
+      frame: map
+      pose: [2.5, 1.5, 1.5708]

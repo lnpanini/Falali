@@ -1,0 +1,59 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!--
+    ros2_control description.
+    use_sim=true  -> Gazebo Sim system (gz_ros2_control)
+    use_sim=false -> the DIY base hardware interface (trolleybot_hardware)
+    Same joints and interfaces in both cases so controllers are unchanged.
+  -->
+  <xacro:macro name="trolleybot_ros2_control" params="use_sim:=true">
+
+    <ros2_control name="TrolleyBotSystem" type="system">
+      <hardware>
+        <xacro:if value="${use_sim in ['true', 'True', '1', True]}">
+          <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+        </xacro:if>
+        <xacro:unless value="${use_sim in ['true', 'True', '1', True]}">
+          <plugin>trolleybot_hardware/DiffDriveSystem</plugin>
+          <!-- Serial/CAN params for the real motor controller (Phase 2). -->
+          <param name="serial_port">/dev/ttyACM0</param>
+          <param name="baud_rate">115200</param>
+          <param name="encoder_counts_per_rev">2048</param>
+          <param name="wheel_radius">0.10</param>
+        </xacro:unless>
+      </hardware>
+
+      <joint name="left_wheel_joint">
+        <command_interface name="velocity"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+      <joint name="right_wheel_joint">
+        <command_interface name="velocity"/>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+
+      <joint name="lift_joint">
+        <command_interface name="position">
+          <param name="min">0.0</param>
+          <param name="max">0.10</param>
+        </command_interface>
+        <state_interface name="position"/>
+        <state_interface name="velocity"/>
+      </joint>
+    </ros2_control>
+
+    <!-- In simulation, load the controller manager inside Gazebo. -->
+    <xacro:if value="${use_sim in ['true', 'True', '1', True]}">
+      <gazebo>
+        <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+          <parameters>$(find trolleybot_description)/config/controllers.yaml</parameters>
+        </plugin>
+      </gazebo>
+    </xacro:if>
+
+  </xacro:macro>
+
+</robot>

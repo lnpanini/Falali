@@ -1,0 +1,17 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="trolleybot">
+
+  <!-- Switch between Gazebo sim hardware and the real DIY base hardware interface -->
+  <xacro:arg name="use_sim" default="true"/>
+
+  <xacro:include filename="$(find trolleybot_description)/urdf/base.xacro"/>
+  <xacro:include filename="$(find trolleybot_description)/urdf/sensors.xacro"/>
+  <xacro:include filename="$(find trolleybot_description)/urdf/lift.xacro"/>
+  <xacro:include filename="$(find trolleybot_description)/urdf/ros2_control.xacro"/>
+
+  <xacro:trolleybot_base/>
+  <xacro:trolleybot_sensors/>
+  <xacro:trolleybot_lift/>
+  <xacro:trolleybot_ros2_control use_sim="$(arg use_sim)"/>
+
+</robot>

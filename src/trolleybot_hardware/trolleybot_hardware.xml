@@ -1,0 +1,12 @@
+<library path="trolleybot_hardware">
+  <class
+    name="trolleybot_hardware/DiffDriveSystem"
+    type="trolleybot_hardware::DiffDriveSystem"
+    base_class_type="hardware_interface::SystemInterface">
+    <description>
+      Hardware interface for the TrolleyBot DIY differential-drive base.
+      Commands wheel velocities and the lift position over serial/CAN and reads
+      back encoder-derived joint states.
+    </description>
+  </class>
+</library>

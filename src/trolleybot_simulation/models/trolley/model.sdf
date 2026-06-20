@@ -1,0 +1,61 @@
+<?xml version="1.0" ?>
+<sdf version="1.10">
+  <model name="trolley">
+    <!-- Static for now; becomes liftable once the lift/dock work begins (Phase 5). -->
+    <static>true</static>
+
+    <link name="frame">
+      <!-- Raised platform (top), ~0.40 m clearance underneath for drive-under. -->
+      <visual name="platform_v">
+        <pose>0 0 0.42 0 0 0</pose>
+        <geometry><box><size>0.7 0.5 0.04</size></box></geometry>
+        <material><ambient>0.8 0.2 0.2 1</ambient><diffuse>0.8 0.2 0.2 1</diffuse></material>
+      </visual>
+      <collision name="platform_c">
+        <pose>0 0 0.42 0 0 0</pose>
+        <geometry><box><size>0.7 0.5 0.04</size></box></geometry>
+      </collision>
+
+      <!-- Four legs -->
+      <visual name="leg_fl_v">
+        <pose>0.3 0.2 0.21 0 0 0</pose>
+        <geometry><box><size>0.04 0.04 0.42</size></box></geometry>
+      </visual>
+      <collision name="leg_fl_c">
+        <pose>0.3 0.2 0.21 0 0 0</pose>
+        <geometry><box><size>0.04 0.04 0.42</size></box></geometry>
+      </collision>
+      <visual name="leg_fr_v">
+        <pose>0.3 -0.2 0.21 0 0 0</pose>
+        <geometry><box><size>0.04 0.04 0.42</size></box></geometry>
+      </visual>
+      <collision name="leg_fr_c">
+        <pose>0.3 -0.2 0.21 0 0 0</pose>
+        <geometry><box><size>0.04 0.04 0.42</size></box></geometry>
+      </collision>
+      <visual name="leg_bl_v">
+        <pose>-0.3 0.2 0.21 0 0 0</pose>
+        <geometry><box><size>0.04 0.04 0.42</size></box></geometry>
+      </visual>
+      <collision name="leg_bl_c">
+        <pose>-0.3 0.2 0.21 0 0 0</pose>
+        <geometry><box><size>0.04 0.04 0.42</size></box></geometry>
+      </collision>
+      <visual name="leg_br_v">
+        <pose>-0.3 -0.2 0.21 0 0 0</pose>
+        <geometry><box><size>0.04 0.04 0.42</size></box></geometry>
+      </visual>
+      <collision name="leg_br_c">
+        <pose>-0.3 -0.2 0.21 0 0 0</pose>
+        <geometry><box><size>0.04 0.04 0.42</size></box></geometry>
+      </collision>
+
+      <!-- Front face plate where an AprilTag will be mounted for docking. -->
+      <visual name="tag_plate_v">
+        <pose>0.351 0 0.30 0 1.5708 0</pose>
+        <geometry><box><size>0.16 0.16 0.002</size></box></geometry>
+        <material><ambient>1 1 1 1</ambient><diffuse>1 1 1 1</diffuse></material>
+      </visual>
+    </link>
+  </model>
+</sdf>

@@ -1,0 +1,11 @@
+# Goal: dock under the trolley identified by its fiducial tag.
+string dock_id
+geometry_msgs/PoseStamped staging_pose
+---
+# Result
+bool success
+string message
+---
+# Feedback
+float32 distance_to_dock
+string state

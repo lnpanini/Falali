@@ -1,0 +1,9 @@
+# Goal: move the lift platform to a target height (meters).
+float64 target_height
+---
+# Result
+bool success
+string message
+---
+# Feedback
+float64 current_height

@@ -11,15 +11,17 @@ Full design: [`docs/superpowers/specs/2026-07-06-trolleybot-esp32-docking-design
 
 ## Safety principle
 
-**The clamp must not begin to close unless the alignment logic reports clamping is safe.** Limit
+**The clamp must not engage unless the alignment logic CONFIRMS the platform is centred.** Limit
 switches only confirm clamp *travel*; they never authorise clamping. `SafetyMonitor` is the single
-gate, and the docking state machine can only actuate the clamp through it.
+gate (`confirmed && no faults && !E-stop`), and the docking state machine reaches the clamp handoff
+only after a sustained `CONFIRM`. The clamp/arm mechanism itself is an **external subsystem** that
+plugs in at the `IClamp` port.
 
 ## Architecture — hexagonal (ports & adapters)
 
 ```
 lib/ports      pure C++ interfaces + shared types (no Arduino)
-lib/domain     the hand-written core:  AlignmentInterpreter · SafetyMonitor · DockingStateMachine
+lib/domain     the hand-written core:  CornerEdgeDetector · DeadReckonOdometry · SafetyMonitor · DockingStateMachine
 lib/drive      MecanumDrive (mixes body-frame vx/vy/omega -> 4 wheels)
 lib/fakes      desktop test doubles for every port
 lib/hal_esp32  Arduino adapters over popular libraries
@@ -30,8 +32,15 @@ test/          host unit tests (Unity)
 
 Dependency rule: **domain → ports** only; **adapters → ports**; **main → everything**. The domain
 never includes Arduino, so it compiles and tests on a laptop. Commodity work uses popular libraries
-(`pololu/VL53L0X`, `Bounce2`, `ArduinoJson`, `SerialCommands`, ESP32 `LEDC`); only the docking,
-alignment-confidence, and safety logic is hand-written — and that is the part under test.
+(`pololu/VL53L0X`, `Bounce2`, `ArduinoJson`, `SerialCommands`, ESP32 `LEDC`); only the docking
+sequence, corner edge detection, odometry, and safety logic are hand-written — and that is the part
+under test.
+
+**Alignment method:** with a solid trolley board and 4 corner ToF sensors, docking is a deterministic
+geometric sequence — `APPROACH → ORIENT` (rotate until both front corners see the edge) `→ CENTER_X`
+(odometry-centre between near/far edges) `→ CENTER_Y` (same, strafing) `→ CONFIRM → clamp handoff`.
+Centring uses dead-reckoning odometry; driving to the midpoint between two edge events makes it robust
+to calibration error.
 
 ## Build, test, flash
 
@@ -51,9 +60,10 @@ Commands in (newline-terminated): `DOCK`, `ABORT`, `UNCLAMP`, `STATUS`.
 Status out is JSON, e.g.:
 
 ```json
-{"state":"ALIGNING","under":0.94,"centred":0.71,"lateral":0.29,"fresh":true,
- "clamp_safe":false,"motor_alarm":false,"overcurrent":false,"estop":false}
+{"state":"CENTER_X","corners":[true,true,false,false],"x_mm":142.0,"y_mm":-3.0,
+ "theta":0.02,"confirmed":false,"motor_alarm":false,"overcurrent":false,"estop":false}
 ```
+(`corners` is `[FL, FR, RL, RR]`.)
 
 ## Pin map — ESP32-S3-N16R8
 
@@ -77,12 +87,15 @@ Authoritative map: [`include/pins.h`](include/pins.h) (validated with the `gpio-
 The `hal_esp32` adapters compile against the libraries but are **not yet hardware-validated**. On the
 bench, verify and adjust:
 
-1. **Arduino-ESP32 core ≥ 3.0** (the LEDC PWM API used here). Older cores need `ledcSetup`/`ledcAttachPin`.
+1. **PWM API** — a `PwmPin` shim supports Arduino-ESP32 core 2.x *and* 3.x automatically.
 2. **BLD120A polarities** — `F/R` forward sense, and active-low `EN`/`BRK`/`ALARM` (`Bld120aMotor.h`).
-3. **Mecanum sign conventions** — confirm forward / strafe / yaw directions (`MecanumDrive.cpp`), and the
-   sign of `lateral → strafe` in `DockingStateMachine` ALIGNING.
-4. **BTS7960 current scale** — calibrate `amps_per_volt` and `cfg::kClampStallAmps`.
-5. **ToF layout** — set `cfg::kNumZones`, the mux channels, `zone_side[]`, and the `band_*_mm` height
-   band for your actual sensor placement. Default backend is the TCA9548A mux (`Vl53l0xMux`);
-   `Vl53l0xArray` (XSHUT re-addressing) is a drop-in alternative.
-6. **Dry-run docking** with the clamp motor disconnected and watch the JSON telemetry.
+3. **Mecanum + orient signs** — confirm forward / strafe / yaw directions (`MecanumDrive.cpp`) and the
+   `ORIENT` rotate-direction sign in `DockingStateMachine.cpp` (rotate toward the lagging corner).
+4. **ToF corners** — mount FL/FR/RL/RR to mux channels `{0,1,2,3}` (`cfg::kMuxChannels`); set the board
+   **height band** (`makeCornerConfig`). Default backend is `Vl53l0xMux`; `Vl53l0xArray` (XSHUT) is a
+   drop-in alternative.
+5. **Odometry calibration** — measure `max_lin_mm_s` / `max_ang_rad_s` (`makeOdometryCal`); tune the
+   centring tolerance/offsets in `makeDockConfig`.
+6. **BTS7960 current scale** — calibrate `amps_per_volt` and `cfg::kClampStallAmps`.
+7. **Dry-run the alignment** and watch the JSON telemetry (`corners`, `x_mm`, `y_mm`, `confirmed`). The
+   clamp/arm subsystem is external and validated separately at the `IClamp` handoff.

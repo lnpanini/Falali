@@ -2,8 +2,8 @@
 
 namespace tb {
 
-void SafetyMonitor::update(const AlignmentState& align, const FaultFlags& faults) {
-  align_ = align;
+void SafetyMonitor::update(bool alignment_confirmed, const FaultFlags& faults) {
+  alignment_confirmed_ = alignment_confirmed;
   faults_ = faults;
   if (faults.estop) estop_latch_ = true;  // latch — never auto-clear
 }
@@ -14,7 +14,7 @@ bool SafetyMonitor::safeStopRequired() const {
 }
 
 bool SafetyMonitor::clampCloseAllowed() const {
-  return align_.clamp_safe && !faults_.motor_alarm && !faults_.clamp_overcurrent &&
+  return alignment_confirmed_ && !faults_.motor_alarm && !faults_.clamp_overcurrent &&
          !estop_latch_;
 }
 

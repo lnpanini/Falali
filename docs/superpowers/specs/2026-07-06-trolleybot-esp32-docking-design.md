@@ -1,7 +1,9 @@
 # TrolleyBot — ESP32 Under-Ride Docking Firmware Design
 
 **Date:** 2026-07-06
-**Status:** Approved design → scaffold implemented
+**Status:** Implemented. **Rev 2026-07-07:** alignment redesigned to a 4-corner **edge + odometry**
+method (see §5) after the trolley base became a guaranteed solid board; the clamp/arm mechanism is now an
+external subsystem (handoff at `IClamp`).
 **Owner:** Bryan
 **Supersedes direction of:** `2026-06-16-trolleybot-agv-design.md` (Jetson/ROS 2/SLAM). That document is
 kept as history; this is a **deliberate pivot** to an ESP32-only prototype.
@@ -26,21 +28,28 @@ sensors are **not** for mapping — only for under-trolley alignment and clampin
 | Wheel drive ×4 | **BLD120A** BLDC driver | `SV` (PWM speed), `F/R` (dir), `EN` (enable), `BRK` (brake); `FG` (speed pulse), `ALARM` (fault, active-low) |
 | Clamp actuator | **BTS7960** H-bridge | `RPWM`/`LPWM` (PWM per dir), `R_EN`/`L_EN` (enable); `R_IS`/`L_IS` (analog current sense) |
 | Clamp travel | 2× limit switches | open / closed |
-| Alignment | N× **VL53L0X** ToF (or array part later) | I²C; multi-sensor via TCA9548A mux or XSHUT re-addressing |
+| Alignment | **4× VL53L0X** ToF, one per corner (FL/FR/RL/RR) | I²C via TCA9548A mux (4 channels) |
+| Odometry | dead-reckoning from commanded velocity | wheel `FG` pulse upgrade later on GPIO 40/41/42/48 |
 | Safety | E-stop button | digital input |
 
-**Kinematics:** mecanum / omni — the robot can strafe, so lateral centring under the trolley is a direct
-sideways motion.
+**Kinematics:** mecanum / omni — the robot can strafe, so lateral centring is a direct sideways motion,
+and orientation is a rotation in place.
 
-**Sensing reality:** the trolley underside may be caged / meshed / barred, so ToF returns are
-**intermittent** — a bar one moment, a gap the next, noise/invalids often. Alignment must be built on
-**confidence and repeated detection over a window**, never a single raw reading.
+**Sensing reality:** the trolley base is a **guaranteed solid board** (a board sits over the frame), so
+ToF returns are **continuous and reliable**. A corner "sees the board" when its reading is valid and
+within a height band; a small debounce rejects noise. (The earlier caged/intermittent assumption, and the
+windowed-confidence design it required, are retired.)
+
+**Clamp/arm subsystem is EXTERNAL:** the arm-open (until in-arm ToF pass the edge) + servo rotation +
+limit-switch grip is built separately. This firmware ends at **CONFIRM (centred)** and hands off through
+the `IClamp` port. In-arm sensors are future roadmap and are not implemented here.
 
 ## 3. Main Safety Principle
 
-**The clamp must not begin to close unless the alignment logic reports clamping is safe.** Limit switches
-only confirm clamp *travel* (open/closed); they never prove the robot is correctly aligned. A single
-`SafetyMonitor` owns this gate; the docking state machine can only actuate the clamp *through* it.
+**The clamp must not engage unless the alignment logic CONFIRMS the platform is centred.** Limit switches
+only confirm clamp *travel*; they never prove alignment. A single `SafetyMonitor` owns this gate
+(`alignment_confirmed && no faults && !E-stop`); the docking state machine can only actuate the clamp
+*through* it, and only reaches the handoff after a sustained `CONFIRM`.
 
 ## 4. Architecture — Hexagonal (Ports & Adapters)
 
@@ -56,15 +65,15 @@ Dependency direction is strictly one-way: **domain → ports**, **adapters → p
               │ ports (pure interfaces)                            │ ports
    ┌──────────▼──────────┐                            ┌────────────▼───────────┐
    │  DOMAIN (pure C++)   │                            │  ADAPTERS (Arduino)    │
-   │  AlignmentInterpreter│  IAlignmentSensor  ◄───────│  Vl53l0xArray / Mux    │
-   │  SafetyMonitor       │  IDrive / IMotor   ◄───────│  MecanumDrive+Bld120a  │
-   │  DockingStateMachine │  IClamp            ◄───────│  Bts7960Clamp          │
-   │                      │  ILimitSwitches    ◄───────│  GpioLimitSwitches     │
+   │  CornerEdgeDetector  │  IAlignmentSensor  ◄───────│  Vl53l0xMux (4 ch)     │
+   │  DeadReckonOdometry  │  IOdometry (pure)          │  MecanumDrive+Bld120a  │
+   │  SafetyMonitor       │  IDrive / IMotor   ◄───────│  Bts7960Clamp          │
+   │  DockingStateMachine │  IClamp/ILimitSwitches◄────│  GpioLimitSwitches     │
    │                      │  IClock / ITelemetry◄──────│  ArduinoClock/Serial   │
    └──────────────────────┘                            └────────────────────────┘
               ▲ same ports
    ┌──────────┴──────────┐
-   │  FAKES (host tests)  │  FakeMotor/Drive/Clamp/LimitSwitches/AlignmentSensor/Clock/Telemetry
+   │  FAKES (host tests)  │  FakeMotor/Drive/Clamp/LimitSwitches/Odometry/Clock/Telemetry
    └─────────────────────┘
 ```
 
@@ -72,47 +81,51 @@ Dependency direction is strictly one-way: **domain → ports**, **adapters → p
 `Bounce2`, `ArduinoJson`, `SerialCommands`, ESP32 `LEDC`). Only the three things with no off-the-shelf
 equivalent are hand-written — and they are the pure, unit-tested core:
 
-- **`AlignmentInterpreter`** — turns noisy per-zone ToF frames into confidence scores.
-- **`SafetyMonitor`** — the single clamp-authority interlock.
-- **`DockingStateMachine`** — the docking/clamping sequence.
+- **`CornerEdgeDetector`** — debounced per-corner "board present" from the 4 ToF frames.
+- **`DeadReckonOdometry`** — planar pose from integrated commanded velocity (behind `IOdometry`).
+- **`SafetyMonitor`** — the single clamp-authority interlock (gated on confirmed alignment).
+- **`DockingStateMachine`** — the geometric orient → centre → confirm sequence.
 
 ## 5. Domain Contracts
 
-### AlignmentInterpreter
-- Input: `AlignmentFrame { ZoneReading[{mm, valid}], zone_count, t_ms }` each tick.
-- Keeps a per-zone rolling window (bitmask of recent in-band hits).
-- `in-band hit` = reading valid **and** `mm` within the expected underside height band.
-- Outputs `AlignmentState`:
-  - `under_trolley` = mean per-zone in-band hit-rate over the window (gap-tolerant — occasional invalids
-    do not collapse it).
-  - `centred` = `1 − |left_rate − right_rate|`; `lateral` = signed `right_rate − left_rate` (drives strafe).
-  - `fresh` = a valid reading arrived within `freshness_timeout_ms`.
-  - `clamp_safe` = `under_trolley ≥ th` **and** `centred ≥ th` **and** `fresh`, sustained past
-    `clamp_debounce_ms`.
-- Zone geometry (which zones are left/right) is **config**, not code → sensor layout stays swappable.
+### CornerEdgeDetector
+- Input: `AlignmentFrame` with 4 corner zones each tick — index order **FL=0, FR=1, RL=2, RR=3**.
+- Per corner: `present = valid && band_min ≤ mm ≤ band_max`, with an N-sample debounce so a single spike
+  cannot flip it. Solid board → no windowing needed.
+- Output: `present(Corner)` booleans + raw mm.
+
+### DeadReckonOdometry (implements `IOdometry`)
+- `update(cmd, now)` integrates the commanded body velocity × dt × calibration (`max_lin_mm_s`,
+  `max_ang_rad_s`) into a world-frame `Pose2D`. `reset()` zeroes.
+- Robust for centring: we only ever drive to the **midpoint** between two edge events measured by the same
+  integrator, so a calibration-scale error cancels. A wheel-pulse (FG) impl can replace it behind the port.
 
 ### SafetyMonitor
-- `clampCloseAllowed()` = `align.clamp_safe` **and** no `motor_alarm` **and** no `clamp_overcurrent`
-  **and** not E-stop-latched.
-- `safeStopRequired()` = `motor_alarm` **or** `clamp_overcurrent` **or** E-stop.
-- E-stop **latches** — it does not auto-clear (must be explicitly cleared, e.g. by `ABORT`).
+- `update(alignment_confirmed, faults)`; E-stop **latches** (explicit clear only, e.g. `ABORT`).
+- `clampCloseAllowed() = alignment_confirmed && !motor_alarm && !clamp_overcurrent && !estop_latch`.
+- `safeStopRequired() = motor_alarm || clamp_overcurrent || estop`.
 
-### DockingStateMachine
-`IDLE → ENTERING → ALIGNING → READY_TO_CLAMP → CLAMPING → CLAMPED → UNCLAMPING → IDLE`, with `FAULT` as a
-sticky safe state reachable from anywhere.
-- **ENTERING:** drive forward until `under_trolley` rises (structure overhead detected).
-- **ALIGNING:** strafe proportional to `lateral` until `centred` is sustained.
-- **READY_TO_CLAMP:** stop; proceed only when `SafetyMonitor.clampCloseAllowed()`.
-- **CLAMPING:** close the clamp until the *closed* limit switch trips; over-current or any safe-stop
-  condition → `FAULT`.
-- **UNCLAMPING:** open until the *open* limit switch trips.
-- Any `safeStopRequired()` or E-stop at any time → `FAULT` (drive disabled + braked, clamp stopped).
-- `ABORT` → safe stop + clear latch → `IDLE`.
+### DockingStateMachine (the geometric sequence)
+`IDLE → APPROACH → ORIENT → CENTER_X → CENTER_Y → CONFIRM → CLAMP_ENGAGE → CLAMPED → UNCLAMPING → IDLE`;
+`FAULT` is a sticky safe state reachable anywhere. Drives `IOdometry` as it moves.
+- **APPROACH:** drive forward until a front corner (FL|FR) sees the near edge.
+- **ORIENT:** rotate toward the lagging corner until BOTH front corners see the board (yaw aligned).
+  Purely sensor-driven — no odometry.
+- **CENTER_X:** mark odom x at the near edge; drive to the far edge (front corners lose the board); drive
+  to the midpoint (− front offset).
+- **CENTER_Y:** strafe to find both side edges via the leading-side corner pair; drive to the midpoint.
+- **CONFIRM:** all 4 corners present within tolerance, sustained past `confirm_hold_ms` → `confirmed`.
+- **CLAMP_ENGAGE:** *handoff* — only if `confirmed && !safeStopRequired()`, engage the clamp (placeholder
+  close to the *closed* switch). The **external** arm/servo/in-arm-ToF subsystem replaces this step.
+- Any `safeStopRequired()`/E-stop → `FAULT` (drive disabled + braked, clamp stopped); `ABORT` → clear
+  latch → `IDLE`; per-phase timeouts → `FAULT`.
 
 ## 6. Execution Model & Telemetry
 - Cooperative fixed-rate superloop (~50 Hz control tick) driven by `IClock`; sensors read at their rate.
-- Telemetry: USB-CDC @115200. `STATUS` emitted as JSON (`ArduinoJson`); `DOCK/ABORT/UNCLAMP/STATUS`
-  parsed by `SerialCommands`. The domain only sees the `ITelemetry` port + a `Command` enum.
+  The `DockingStateMachine` integrates `IOdometry` from the motion it commands (main does not).
+- Telemetry: USB-CDC @115200. `STATUS` emitted as JSON (`ArduinoJson`) — `state`, `corners[4]`,
+  `x_mm`, `y_mm`, `theta`, `confirmed`, plus fault flags; `DOCK/ABORT/UNCLAMP/STATUS` parsed by
+  `SerialCommands`. The domain only sees the `ITelemetry` port + a `Command` enum.
 
 ## 7. Pin Budget — ESP32-S3-N16R8 (fits: ~21 of 33 usable)
 Reserved on N16R8: **GPIO26–37** (flash + octal PSRAM). Usable: 0–21, 38–48. See `include/pins.h` for the
@@ -120,16 +133,20 @@ authoritative map (generated/validated with the `gpio-config` skill). Control li
 safety: all wheel `EN` gang to one pin, all `BRK` to one pin, all `ALARM` wire-OR to one interrupt.
 
 ## 8. Testing
-- **Primary (host, no hardware):** `pio test -e native` over the pure core.
-  - Interpreter: intermittent dropouts keep `under_trolley` up; sustained invalids clear `fresh`.
-  - Safety: `clampCloseAllowed()` denied on low confidence / stale / motor alarm / over-current / E-stop.
-  - State machine: reaches `CLAMPED` only after a granted request; `ABORT` and mid-clamp over-current
-    route to a safe stop.
+- **Primary (host, no hardware):** `pio test -e native` over the pure core (22 cases).
+  - CornerEdgeDetector: in-band reading → present after debounce; a single out-of-band spike doesn't flip it.
+  - Odometry: forward → x, strafe → y, rotate → θ.
+  - Safety: `clampCloseAllowed()` denied unless `confirmed` and no faults; E-stop latches.
+  - State machine: the full geometric sequence reaches `CLAMPED` only after `CONFIRM`; orient rotates
+    toward the lagging corner; E-stop / over-current → `FAULT`; `ABORT` → `IDLE`.
 - **Firmware compile:** `pio run -e esp32s3` (fetches `lib_deps`).
-- **On hardware (later):** per-actuator jog, ToF address self-check, limit-switch read, dry-run docking
-  with the clamp motor disconnected.
+- **On hardware (later):** per-actuator jog, ToF corner map + height band, limit-switch read, odometry
+  calibration, dry-run alignment with telemetry (clamp subsystem validated separately).
 
 ## 9. Open Items (for hardware bring-up)
-- Confirm mecanum wheel sign conventions and the sign of `lateral → strafe`.
-- Final ToF sensor count/layout → set `zone_side[]` and the height band in `config.h`.
+- Confirm mecanum wheel signs, the **ORIENT rotate-direction** sign, and the centring-move signs.
+- Set the ToF **height band**, the corner→mux-channel map, and centring **offsets/tolerances** in `config.h`.
+- Calibrate odometry `max_lin_mm_s` / `max_ang_rad_s`; add FG wheel feedback for accuracy when needed.
 - BTS7960 `IS → amps` scale and BLD120A `SV` PWM frequency, measured on the bench.
+- The **external clamp/arm subsystem** (arm-open via in-arm ToF, servo rotation, limit-switch grip)
+  integrates at the `IClamp` handoff.

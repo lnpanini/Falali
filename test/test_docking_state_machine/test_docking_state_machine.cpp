@@ -1,4 +1,5 @@
-// Host tests for DockingStateMachine — the sequence, and its safety-gated clamp.
+// Host tests for DockingStateMachine — the geometric 4-corner sequence, driven by
+// scripted corner presence + odometry, and its safety-gated clamp handoff.
 #include <unity.h>
 
 #include "DockingStateMachine.h"
@@ -6,49 +7,62 @@
 #include "FakeClock.h"
 #include "FakeDrive.h"
 #include "FakeLimitSwitches.h"
+#include "FakeOdometry.h"
 #include "SafetyMonitor.h"
 
 using namespace tb;
 
 namespace {
 
-// A test rig wiring the state machine to fakes, with a single-call tick helper.
+// Corner-presence patterns [FL, FR, RL, RR].
+const bool NONE[4] = {false, false, false, false};
+const bool FL_ONLY[4] = {true, false, false, false};
+const bool FR_ONLY[4] = {false, true, false, false};
+const bool FRONT[4] = {true, true, false, false};
+const bool ALL[4] = {true, true, true, true};
+const bool FRONT_LOST[4] = {false, false, true, true};   // front off board, rear on
+const bool LEFT_LOST[4] = {false, true, false, true};    // FL,RL off -> left edge crossed
+const bool RIGHT_LOST[4] = {true, false, true, false};   // FR,RR off -> right edge crossed
+
 struct Rig {
   FakeDrive drive;
   FakeClamp clamp;
   FakeLimitSwitches limits;
+  FakeOdometry odom;
   FakeClock clk;
   SafetyMonitor safety;
   DockingConfig cfg;
-  DockingStateMachine sm{drive, clamp, limits, safety, clk, cfg};
+  DockingStateMachine sm{drive, clamp, limits, odom, safety, clk, cfg};
 
-  void tick(const AlignmentState& a, const FaultFlags& f) {
-    safety.update(a, f);  // main loop refreshes safety before the SM tick
-    sm.update(a);
+  void tick(const bool* p, const FaultFlags& f = FaultFlags{}) {
+    safety.update(sm.alignmentConfirmed(), f);  // main refreshes the gate first
+    sm.update(p);
   }
 };
 
-AlignmentState under() {
-  AlignmentState a;
-  a.under_trolley = 0.6f;
-  return a;
-}
-
-AlignmentState clampSafe() {
-  AlignmentState a;
-  a.under_trolley = 0.95f;
-  a.centred = 0.95f;
-  a.fresh = true;
-  a.clamp_safe = true;
-  return a;
-}
-
-// Drive the sequence from Idle to Clamping (gate open the whole way).
-void toClamping(Rig& r) {
-  r.sm.handleCommand(Command::Dock);       // -> Entering
-  r.tick(under(), FaultFlags{});           // under detected -> Aligning
-  r.tick(clampSafe(), FaultFlags{});       // clamp_safe -> ReadyToClamp
-  r.tick(clampSafe(), FaultFlags{});       // gate open -> Clamping
+// Drive the full geometric sequence from Idle to the CLAMP_ENGAGE handoff.
+void driveToClampEngage(Rig& r) {
+  r.sm.handleCommand(Command::Dock);        // -> APPROACH
+  r.tick(NONE);                             // no edge yet
+  r.tick(FL_ONLY);                          // front corner sees edge -> ORIENT
+  r.odom.setX(0);
+  r.tick(FRONT);                            // both front -> x_near=0, CENTER_X
+  r.odom.setX(200);
+  r.tick(FRONT_LOST);                       // far edge -> x_far=200, target=100
+  r.odom.setX(100);
+  r.tick(ALL);                              // at x target -> CENTER_Y
+  r.odom.setY(0);
+  r.tick(ALL);                              // strafing left (left still on board)
+  r.odom.setY(50);
+  r.tick(LEFT_LOST);                        // left edge -> y_a=50
+  r.odom.setY(-50);
+  r.tick(RIGHT_LOST);                       // right edge -> y_b=-50, target=0
+  r.odom.setY(0);
+  r.tick(ALL);                              // at y target -> CONFIRM
+  r.clk.set(0);
+  r.tick(ALL);                              // start confirm hold
+  r.clk.set(400);
+  r.tick(ALL);                              // hold elapsed -> confirmed -> CLAMP_ENGAGE
 }
 
 } // namespace
@@ -56,91 +70,113 @@ void toClamping(Rig& r) {
 void setUp() {}
 void tearDown() {}
 
-void test_happy_path_reaches_clamped_only_after_gate() {
+// The sequence visits each phase in order and only clamps at the end.
+void test_phase_progression_to_clamped() {
   Rig r;
   r.sm.handleCommand(Command::Dock);
-  TEST_ASSERT_TRUE(r.sm.state() == DockState::Entering);
+  TEST_ASSERT_TRUE(r.sm.state() == DockState::Approach);
   TEST_ASSERT_TRUE(r.drive.enabled());
 
-  r.tick(under(), FaultFlags{});
-  TEST_ASSERT_TRUE(r.sm.state() == DockState::Aligning);
+  r.tick(NONE);
+  TEST_ASSERT_TRUE(r.sm.state() == DockState::Approach);
+  TEST_ASSERT_TRUE(r.drive.last().vx > 0.0f);  // driving under
 
-  r.tick(clampSafe(), FaultFlags{});
-  TEST_ASSERT_TRUE(r.sm.state() == DockState::ReadyToClamp);
+  r.tick(FL_ONLY);
+  TEST_ASSERT_TRUE(r.sm.state() == DockState::Orient);
 
-  r.tick(clampSafe(), FaultFlags{});
-  TEST_ASSERT_TRUE(r.sm.state() == DockState::Clamping);
+  r.odom.setX(0);
+  r.tick(FRONT);
+  TEST_ASSERT_TRUE(r.sm.state() == DockState::CenterX);
 
-  r.tick(clampSafe(), FaultFlags{});  // still closing, switch not tripped
+  r.odom.setX(200);
+  r.tick(FRONT_LOST);
+  r.odom.setX(100);
+  r.tick(ALL);
+  TEST_ASSERT_TRUE(r.sm.state() == DockState::CenterY);
+
+  r.odom.setY(0);
+  r.tick(ALL);
+  r.odom.setY(50);
+  r.tick(LEFT_LOST);
+  r.odom.setY(-50);
+  r.tick(RIGHT_LOST);
+  r.odom.setY(0);
+  r.tick(ALL);
+  TEST_ASSERT_TRUE(r.sm.state() == DockState::Confirm);
+
+  // Clamp must NOT have engaged anywhere before CONFIRM.
+  TEST_ASSERT_TRUE(r.clamp.action() != ClampAction::Close);
+  TEST_ASSERT_FALSE(r.sm.alignmentConfirmed());
+
+  r.clk.set(0);
+  r.tick(ALL);
+  r.clk.set(400);
+  r.tick(ALL);
+  TEST_ASSERT_TRUE(r.sm.state() == DockState::ClampEngage);
+  TEST_ASSERT_TRUE(r.sm.alignmentConfirmed());
+
+  r.tick(ALL);
   TEST_ASSERT_TRUE(r.clamp.action() == ClampAction::Close);
-  TEST_ASSERT_TRUE(r.sm.state() == DockState::Clamping);
-
-  r.limits.setClosed(true);           // closed switch confirms travel
-  r.tick(clampSafe(), FaultFlags{});
+  r.limits.setClosed(true);
+  r.tick(ALL);
   TEST_ASSERT_TRUE(r.sm.state() == DockState::Clamped);
   TEST_ASSERT_TRUE(r.clamp.action() == ClampAction::Stop);
 }
 
-// Aligning strafes opposite the lateral bias (toward centre) and never clamps.
-void test_aligning_strafes_and_holds_without_gate() {
-  Rig r;
-  r.sm.handleCommand(Command::Dock);
-  r.tick(under(), FaultFlags{});
-  TEST_ASSERT_TRUE(r.sm.state() == DockState::Aligning);
+// Orientation rotates toward the lagging corner — opposite sign for FL-first vs FR-first.
+void test_orient_rotates_toward_lagging_corner() {
+  Rig rl;
+  rl.sm.handleCommand(Command::Dock);
+  rl.tick(FL_ONLY);  // -> Orient
+  rl.tick(FL_ONLY);  // rotate (FL leads)
+  const float wl = rl.drive.last().omega;
 
-  AlignmentState off;
-  off.under_trolley = 0.9f;
-  off.centred = 0.4f;
-  off.lateral = 0.5f;      // right-heavy
-  off.clamp_safe = false;
-  r.tick(off, FaultFlags{});
-  TEST_ASSERT_TRUE(r.sm.state() == DockState::Aligning);
-  TEST_ASSERT_TRUE(r.drive.last().vy < 0.0f);  // strafe left, back toward centre
+  Rig rr;
+  rr.sm.handleCommand(Command::Dock);
+  rr.tick(FR_ONLY);  // -> Orient
+  rr.tick(FR_ONLY);  // rotate (FR leads)
+  const float wr = rr.drive.last().omega;
+
+  TEST_ASSERT_TRUE(wl != 0.0f && wr != 0.0f);
+  TEST_ASSERT_TRUE((wl < 0.0f) != (wr < 0.0f));  // opposite directions
 }
 
-// Losing the gate at READY_TO_CLAMP recovers to Aligning — it must not clamp.
-void test_lost_gate_recovers_without_clamping() {
+// The clamp only engages after CONFIRM and through the gate.
+void test_clamp_engages_only_after_confirm() {
   Rig r;
-  r.sm.handleCommand(Command::Dock);
-  r.tick(under(), FaultFlags{});
-  r.tick(clampSafe(), FaultFlags{});
-  TEST_ASSERT_TRUE(r.sm.state() == DockState::ReadyToClamp);
-
-  AlignmentState lost;  // alignment collapsed
-  lost.clamp_safe = false;
-  r.tick(lost, FaultFlags{});
-  TEST_ASSERT_TRUE(r.sm.state() == DockState::Aligning);
-  TEST_ASSERT_TRUE(r.clamp.action() != ClampAction::Close);
+  driveToClampEngage(r);
+  TEST_ASSERT_TRUE(r.sm.state() == DockState::ClampEngage);
+  r.tick(ALL);
+  TEST_ASSERT_TRUE(r.clamp.action() == ClampAction::Close);
 }
 
-// Over-current mid-clamp routes to FAULT (safe stop).
-void test_overcurrent_during_clamping_faults() {
+// Over-current during the clamp handoff routes to FAULT.
+void test_overcurrent_during_clamp_faults() {
   Rig r;
-  toClamping(r);
-  TEST_ASSERT_TRUE(r.sm.state() == DockState::Clamping);
-
+  driveToClampEngage(r);
   FaultFlags oc;
   oc.clamp_overcurrent = true;
-  r.tick(clampSafe(), oc);
+  r.tick(ALL, oc);
   TEST_ASSERT_TRUE(r.sm.state() == DockState::Fault);
   TEST_ASSERT_TRUE(r.drive.braked());
 }
 
-// E-stop from any state forces FAULT.
+// E-stop from mid-sequence forces FAULT.
 void test_estop_forces_fault() {
   Rig r;
   r.sm.handleCommand(Command::Dock);
-  r.tick(under(), FaultFlags{});
+  r.tick(FL_ONLY);  // Orient
   FaultFlags es;
   es.estop = true;
-  r.tick(under(), es);
+  r.tick(FL_ONLY, es);
   TEST_ASSERT_TRUE(r.sm.state() == DockState::Fault);
 }
 
 // Abort stops everything and returns to Idle.
 void test_abort_returns_to_idle() {
   Rig r;
-  toClamping(r);
+  r.sm.handleCommand(Command::Dock);
+  r.tick(FL_ONLY);
   r.sm.handleCommand(Command::Abort);
   TEST_ASSERT_TRUE(r.sm.state() == DockState::Idle);
   TEST_ASSERT_TRUE(r.drive.stopped());
@@ -150,10 +186,10 @@ int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
   UNITY_BEGIN();
-  RUN_TEST(test_happy_path_reaches_clamped_only_after_gate);
-  RUN_TEST(test_aligning_strafes_and_holds_without_gate);
-  RUN_TEST(test_lost_gate_recovers_without_clamping);
-  RUN_TEST(test_overcurrent_during_clamping_faults);
+  RUN_TEST(test_phase_progression_to_clamped);
+  RUN_TEST(test_orient_rotates_toward_lagging_corner);
+  RUN_TEST(test_clamp_engages_only_after_confirm);
+  RUN_TEST(test_overcurrent_during_clamp_faults);
   RUN_TEST(test_estop_forces_fault);
   RUN_TEST(test_abort_returns_to_idle);
   return UNITY_END();

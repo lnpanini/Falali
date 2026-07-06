@@ -14,8 +14,8 @@ public:
   // Service incoming serial (parse commands). Call every loop iteration.
   void pump();
 
-  void publish(const char* state, const AlignmentState& align,
-               const FaultFlags& faults) override;
+  void publish(const char* state, const bool* corner_present, size_t n_corners,
+               const Pose2D& pose, bool confirmed, const FaultFlags& faults) override;
   void log(const char* msg) override;
   Command poll() override;
 };

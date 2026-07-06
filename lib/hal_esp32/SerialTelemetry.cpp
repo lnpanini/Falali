@@ -46,15 +46,16 @@ Command SerialTelemetry::poll() {
   return c;
 }
 
-void SerialTelemetry::publish(const char* state, const AlignmentState& a,
-                              const FaultFlags& f) {
+void SerialTelemetry::publish(const char* state, const bool* corner_present, size_t n_corners,
+                              const Pose2D& pose, bool confirmed, const FaultFlags& f) {
   JsonDocument doc;
   doc["state"] = state;
-  doc["under"] = a.under_trolley;
-  doc["centred"] = a.centred;
-  doc["lateral"] = a.lateral;
-  doc["fresh"] = a.fresh;
-  doc["clamp_safe"] = a.clamp_safe;
+  JsonArray corners = doc["corners"].to<JsonArray>();  // FL, FR, RL, RR
+  for (size_t i = 0; i < n_corners; ++i) corners.add(corner_present[i]);
+  doc["x_mm"] = pose.x_mm;
+  doc["y_mm"] = pose.y_mm;
+  doc["theta"] = pose.theta_rad;
+  doc["confirmed"] = confirmed;
   doc["motor_alarm"] = f.motor_alarm;
   doc["overcurrent"] = f.clamp_overcurrent;
   doc["estop"] = f.estop;

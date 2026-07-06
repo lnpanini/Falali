@@ -7,13 +7,12 @@
 
 namespace tb {
 
-// Maximum number of alignment zones the interpreter can track.
-// Fixed so the pure core stays allocation-free regardless of sensor layout.
-constexpr size_t kMaxZones = 8;
+// Four corner ToF sensors, one per platform corner.
+constexpr size_t kNumCorners = 4;
+enum class Corner : uint8_t { FL = 0, FR = 1, RL = 2, RR = 3 };
 
-// Number of recent frames the alignment interpreter remembers per zone.
-// Stored as a bitmask, so this must be <= 16 (bits in a uint16_t).
-constexpr uint8_t kZoneWindow = 16;
+// Maximum zones an AlignmentFrame can carry (>= kNumCorners).
+constexpr size_t kMaxZones = 8;
 
 // One time-of-flight zone reading.
 struct ZoneReading {
@@ -28,13 +27,11 @@ struct AlignmentFrame {
   uint32_t t_ms = 0;
 };
 
-// Confidence-scored interpretation the docking logic consumes.
-struct AlignmentState {
-  float under_trolley = 0.0f;  // 0..1 confidence the robot is beneath the trolley
-  float centred = 0.0f;        // 0..1 confidence it is laterally centred
-  float lateral = 0.0f;        // signed -1..1 (right-heavy +) — drives the centring strafe
-  bool fresh = false;          // false = sensor data stale (too few valid returns lately)
-  bool clamp_safe = false;     // the single derived gate: sustained + fresh + centred + under
+// Planar pose estimate from odometry (body starts at origin, +x forward, +y left).
+struct Pose2D {
+  float x_mm = 0.0f;
+  float y_mm = 0.0f;
+  float theta_rad = 0.0f;
 };
 
 // Drive command in normalised body-frame units, each in [-1, 1].
@@ -46,9 +43,9 @@ struct DriveCommand {
 
 // Aggregated hardware fault inputs the safety monitor evaluates.
 struct FaultFlags {
-  bool motor_alarm = false;       // any BLD120A ALARM asserted (wire-OR'd)
-  bool clamp_overcurrent = false; // BTS7960 current sense above the stall limit
-  bool estop = false;             // physical E-stop asserted
+  bool motor_alarm = false;        // any BLD120A ALARM asserted (wire-OR'd)
+  bool clamp_overcurrent = false;  // BTS7960 current sense above the stall limit
+  bool estop = false;              // physical E-stop asserted
 };
 
 // High-level operator commands (parsed from serial by the telemetry adapter).

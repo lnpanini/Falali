@@ -1,9 +1,8 @@
 // TrolleyBot — ESP32-S3 under-ride docking firmware: composition root.
 //
-// This is the ONLY translation unit that knows about both hardware and domain.
-// It builds the real adapters, wires them into the pure domain objects, and runs
-// the fixed-rate control loop. All the interesting logic lives (and is tested) in
-// lib/domain; this file is just plumbing.
+// The ONLY translation unit that knows about both hardware and domain. It builds
+// the real adapters, wires them into the pure domain objects, and runs the fixed-
+// rate control loop. The interesting logic lives (and is tested) in lib/domain.
 #include <Arduino.h>
 #include <Wire.h>
 
@@ -11,7 +10,8 @@
 #include "pins.h"
 
 // Domain (pure)
-#include "AlignmentInterpreter.h"
+#include "CornerEdgeDetector.h"
+#include "DeadReckonOdometry.h"
 #include "DockingStateMachine.h"
 #include "MecanumDrive.h"
 #include "SafetyMonitor.h"
@@ -43,9 +43,11 @@ Vl53l0xMux g_tof(cfg::kMuxAddr, cfg::kMuxChannels, cfg::kNumZones);
 SerialTelemetry g_telemetry;
 
 // ---- Domain (pure) ---------------------------------------------------------
-AlignmentInterpreter g_interp(cfg::makeAlignConfig(), g_clock);
+CornerEdgeDetector g_edge(cfg::makeCornerConfig());
+DeadReckonOdometry g_odom(cfg::makeOdometryCal());
 SafetyMonitor g_safety;
-DockingStateMachine g_sm(g_drive, g_clamp, g_limits, g_safety, g_clock, cfg::makeDockConfig());
+DockingStateMachine g_sm(g_drive, g_clamp, g_limits, g_odom, g_safety, g_clock,
+                         cfg::makeDockConfig());
 
 uint32_t g_last_control = 0;
 uint32_t g_last_telem = 0;
@@ -91,16 +93,22 @@ void loop() {
   if (now - g_last_control >= cfg::kControlPeriodMs) {
     g_last_control = now;
     g_limits.update();
-    g_interp.update(g_tof.read());
-    const AlignmentState st = g_interp.state();
-    const FaultFlags faults = readFaults();
-    g_safety.update(st, faults);  // refresh the gate BEFORE the state machine ticks
-    g_sm.update(st);
+    g_edge.update(g_tof.read());
+
+    bool present[cfg::kNumZones];
+    for (size_t i = 0; i < cfg::kNumZones; ++i) present[i] = g_edge.present(i);
+
+    // Refresh the gate BEFORE the state machine ticks. The SM drives odometry itself.
+    g_safety.update(g_sm.alignmentConfirmed(), readFaults());
+    g_sm.update(present);
   }
 
-  // Periodic status publish (and immediate reply to a STATUS command).
+  // Periodic status publish (and an immediate reply to a STATUS command).
   if (cmd == Command::Status || now - g_last_telem >= cfg::kTelemetryPeriodMs) {
     g_last_telem = now;
-    g_telemetry.publish(g_sm.stateName(), g_interp.state(), readFaults());
+    bool present[cfg::kNumZones];
+    for (size_t i = 0; i < cfg::kNumZones; ++i) present[i] = g_edge.present(i);
+    g_telemetry.publish(g_sm.stateName(), present, cfg::kNumZones, g_odom.pose(),
+                        g_sm.alignmentConfirmed(), readFaults());
   }
 }

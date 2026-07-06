@@ -4,7 +4,8 @@
 
 #include <cstdint>
 
-#include "AlignmentInterpreter.h"
+#include "CornerEdgeDetector.h"
+#include "DeadReckonOdometry.h"
 #include "DockingStateMachine.h"
 
 namespace cfg {
@@ -13,25 +14,30 @@ namespace cfg {
 constexpr uint32_t kControlPeriodMs = 20;     // 50 Hz control tick
 constexpr uint32_t kTelemetryPeriodMs = 200;  // 5 Hz status publish
 
-// --- Alignment sensor layout (start: 2 single-point ToF, left + right) ---
-constexpr uint8_t kNumZones = 2;
-constexpr uint8_t kMuxAddr = 0x70;             // TCA9548A
-constexpr uint8_t kMuxChannels[kNumZones] = {0, 1};  // channel per zone
+// --- Alignment sensor layout: 4 corner ToF on the TCA9548A mux ---
+// Zone index order MUST match Corner: FL=0, FR=1, RL=2, RR=3.
+constexpr uint8_t kNumZones = 4;
+constexpr uint8_t kMuxAddr = 0x70;                       // TCA9548A
+constexpr uint8_t kMuxChannels[kNumZones] = {0, 1, 2, 3};  // FL, FR, RL, RR
 
 // --- Clamp safety ---
-constexpr float kClampStallAmps = 4.0f;        // over-current -> fault (calibrate on bench)
+constexpr float kClampStallAmps = 4.0f;  // over-current -> fault (calibrate on bench)
 
-// Build the alignment interpreter config for this sensor layout.
-inline tb::AlignmentConfig makeAlignConfig() {
-  tb::AlignmentConfig c;
+// Corner edge detection: the solid board sits within this height band above the
+// up-facing sensors. Tune on the bench.
+inline tb::CornerConfig makeCornerConfig() {
+  tb::CornerConfig c;
   c.band_min_mm = 20;
-  c.band_max_mm = 150;
-  c.under_trolley_threshold = 0.60f;
-  c.centred_threshold = 0.60f;
-  c.freshness_timeout_ms = 300;
-  c.clamp_debounce_ms = 400;
-  c.zone_side[0] = -1;  // zone 0 = left
-  c.zone_side[1] = +1;  // zone 1 = right
+  c.band_max_mm = 400;
+  c.debounce = 2;
+  return c;
+}
+
+// Dead-reckoning calibration: platform speed / yaw rate at full command.
+inline tb::OdometryCal makeOdometryCal() {
+  tb::OdometryCal c;
+  c.max_lin_mm_s = 300.0f;
+  c.max_ang_rad_s = 1.5f;
   return c;
 }
 

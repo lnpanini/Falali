@@ -28,22 +28,32 @@ The **ESP32-S3 has Bluetooth Low Energy only — no Bluetooth Classic (BR/EDR) r
 - **Bluepad32** is the library: it supports gamepads over BTstack, and on the S3 (BLE-only) it drives
   BLE controllers such as the Xbox pad.
 
-## 3. Architecture — build & code structure
+## 3. Architecture — two builds, one shared core
 
-**One source file, compile-flag gated, new PlatformIO env. The working `bench` env is left untouched.**
+Bluepad32-on-Arduino via PlatformIO is **not** a stock Arduino project. Per Bluepad32's own template
+(README: *"Arduino IDE is not supported in this template app"*), it is an **ESP-IDF project with
+Arduino as a component**: `framework = espidf`, the **`pioarduino` platform fork** (not
+`platform = espressif32`), and a `components/` tree carrying Arduino + Bluepad32 + BTstack as git
+submodules, plus `sdkconfig` and `CMakeLists.txt`. That is structurally incompatible with our existing
+plain-Arduino, multi-env project — so **the gamepad build is a separate PlatformIO project in a
+subfolder (`bench_ble/`), not a new env.**
 
-- All gamepad code lives in `src/bench_check.cpp` behind `#if defined(USE_GAMEPAD)`. The drivetrain,
-  ToF sensing, and the entire auto-align state machine are shared verbatim between builds — one source
-  of truth, no duplication.
-- **`[env:bench]`** (existing) builds the file *without* the flag: serial-only, the proven fallback.
-- **`[env:benchpad]`** (new) builds the *same* file *with* `-DUSE_GAMEPAD`, and swaps in Bluepad32's
-  patched Arduino-ESP32 framework (Bluepad32 replaces the default Bluedroid stack with BTstack, so it
-  ships its own framework build — it is **not** a plain `lib_deps` add-on). Keeps the same
-  `board_build.arduino.memory_type = qio_opi`, the native-USB CDC flags
-  (`ARDUINO_USB_CDC_ON_BOOT=1`, `ARDUINO_USB_MODE=1`), and `build_src_filter = +<bench_check.cpp>`.
+To keep one source of truth across the two structurally different builds, the bench logic is factored
+into a **shared, header-only core** that both include:
 
-> The exact Bluepad32 PlatformIO incantation (framework `platform_packages` URL and lib reference) is
-> version-sensitive and will be pinned from Bluepad32's own docs during the implementation-plan step.
+- **`src/bench_core.h`** (new) — drivetrain (pins, invert mask, `wheel`, `driveMixF`, the `driveMix`
+  integer wrapper, `stopAll`), ToF bring-up (mux/XSHUT auto-detect), presence debounce, and the
+  auto-align state machine — exposed through a small API: `coreSetup()` and
+  `coreUpdate(float vx, float vy, float w, bool alignStart, bool alignAbort)` that takes a proportional
+  manual intent + align edge commands and runs one sensor+state-machine iteration.
+- **Serial build** (existing project, `[env:bench]`): `src/bench_check.cpp` becomes a thin **serial
+  frontend** — WASD/CAL keys → intent + `g`/`x` edges → `coreUpdate`. Still the proven, untethered-safe
+  fallback; unchanged toolchain.
+- **Gamepad build** (`bench_ble/`, new project from the Bluepad32 template): `arduino_main.cpp` is the
+  **gamepad frontend** — Bluepad32 sticks → intent, A/B → align edges → `coreUpdate`. It adds an include
+  path to `../src/bench_core.h` and pulls the Pololu VL53L0X library in as a component.
+
+One copy of the drivetrain calibration, pin table, and align logic; two thin frontends over it.
 
 ## 4. Control scheme — proportional analog
 
@@ -122,10 +132,13 @@ Manual drive from a wireless link must fail **stopped**, never latched at the la
 
 ## 9. Open items / risks
 
-- Pin the exact Bluepad32 PlatformIO framework/lib references from its current docs (implementation-plan
-  step).
-- Confirm the specific Xbox pad's BLE pairing (firmware-update needed for older Xbox One models).
+- The `bench_ble/` project is generated from Bluepad32's **`esp-idf-arduino-bluepad32-template`**
+  (`pioarduino` platform, ESP-IDF v5.4.2, `components/` submodules cloned `--recursive`). First build
+  pulls a large toolchain; budget time for it. VL53L0X must be added as a component/lib in that project.
+- **Controller:** an Xbox Wireless **model 1914** (Series X/S) — BLE-only, **firmware ≥ v5.15** per
+  Bluepad32's supported-gamepads docs. Pair by holding the Pair button ~3 s; Bluepad32 auto-connects.
+  Older Xbox One pads (model 1708) may need a firmware update first.
 - Confirm stick-axis and rotate **sign conventions** on hardware.
 - Bench-tune the stick **deadzone** and **`MIN_MOVE_DUTY`** to the actual controller and motors.
-- Verify the guarded-serial approach holds on Bluepad32's core build (no residual blocking when USB is
-  disconnected).
+- Verify the guarded-serial (`if (Serial)`) approach holds on the Bluepad32/ESP-IDF build (no residual
+  blocking when USB is disconnected).

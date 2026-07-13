@@ -13,3 +13,10 @@
 .vscode/
 .idea/
 .DS_Store
+
+# Bluepad32 bench_ble project — vendored components + build artifacts
+bench_ble/.pio/
+bench_ble/components/
+bench_ble/managed_components/
+bench_ble/sdkconfig.esp32-s3-devkitc-1
+bench_ble/dependencies.lock

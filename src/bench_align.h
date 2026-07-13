@@ -24,14 +24,26 @@ inline const uint8_t MUX_ADDR = 0x70;
 inline const uint16_t BAND_MIN_MM = 20; // board "present" when reading in [min,max]
 inline const uint16_t BAND_MAX_MM = 500;
 inline const uint8_t DEBOUNCE_N = 2;
-inline const int ALIGN_ROT_DUTY = 180;           // ORIENT rotate duty
-inline const int CENTER_DUTY = 180;              // CENTER_X creep duty
+inline const int ALIGN_ROT_DUTY = 90;            // ORIENT rotate duty (gentle -> less overshoot)
+inline const int CENTER_DUTY = 90;               // CENTER_X creep duty (slow -> bigger x_far, clean midpoint)
 inline const float CREEP_NOMINAL_MMPS = 150.0f;  // odometry scale (cancels at midpoint)
 inline const float CENTER_TOL_MM = 12.0f;
 inline const float FRONT_OFFSET_MM = 0.0f;
 inline const uint32_t ORIENT_TIMEOUT_MS = 10000;
 inline const uint32_t LOST_TIMEOUT_MS = 1500;
 inline const uint32_t CENTER_TIMEOUT_MS = 12000;
+
+// Anti-stall: before each align move-from-rest, settle to a symmetric friction
+// state (PAUSE), then a brief full-duty pulse to break stiction (KICK), so both
+// sides launch together instead of one lurching first.
+inline const uint32_t PAUSE_MS = 150;
+inline const uint32_t KICK_MS = 80;
+inline const int KICK_DUTY = 255;
+// Pivot compensation: bias ORIENT to rotate about the *leading* (already-detected)
+// sensor instead of the robot centre, so it doesn't drift off the edge during the
+// correction. Forward-bias gain = c / L_char = 26.25 / (68.75 + 82.5) ~= 0.17.
+// Sign + magnitude are verify-on-hardware; flip the sign if the cant gets worse.
+inline const float PIVOT_GAIN = 0.17f;
 
 // ---- ToF --------------------------------------------------------------------
 inline VL53L0X tofA, tofB;
@@ -135,11 +147,25 @@ inline void odoReset() {
   odom_x = 0.0f;
   odo_last_ms = millis();
 }
-inline void odoStep(int vx_sign) {
+// Integrate commanded motion. Scaled by duty/CENTER_DUTY so a full-duty kickstart
+// burst is counted at roughly its real (faster) speed, keeping the CENTER_X
+// midpoint consistent between the seek and the return. Call every loop (vx_sign=0
+// while paused) so the time base stays current.
+inline void odoStep(int vx_sign, int duty) {
   const uint32_t now = millis();
   const float dt = (now - odo_last_ms) / 1000.0f;
   odo_last_ms = now;
-  odom_x += vx_sign * CREEP_NOMINAL_MMPS * dt;
+  odom_x += vx_sign * CREEP_NOMINAL_MMPS * (duty / (float)CENTER_DUTY) * dt;
+}
+
+// Move-from-rest sequencer: 0 while settling (caller stops), full duty during the
+// kickstart window, then the cruise duty. `elapsed` is time since the phase began.
+inline int phaseDuty(uint32_t elapsed, int cruise) {
+  if (elapsed < PAUSE_MS)
+    return 0; // settle to a symmetric friction state
+  if (elapsed < PAUSE_MS + KICK_MS)
+    return KICK_DUTY; // symmetric kickstart to break stiction
+  return cruise;      // cruise
 }
 
 inline void setMode(Mode m) {
@@ -192,29 +218,48 @@ inline void alignUpdate(float vx, float vy, float w) {
   case Mode::Manual:
     driveMixF(vx, vy, w, g_speed);
     break;
-  case Mode::Orient:
+  case Mode::Orient: {
     if (a && b) {
       stopAll();
       odoReset();
       setMode(Mode::CenterSeek);
-    } else {
-      const int rot = (a && !b) ? -1 : +1; // toward the lagging sensor
-      driveMix(0, 0, rot, ALIGN_ROT_DUTY);
-      if (!a && !b) {
-        if (both_lost_since == 0)
-          both_lost_since = millis();
-        else if (millis() - both_lost_since > LOST_TIMEOUT_MS)
-          abortToManual();
-      } else {
-        both_lost_since = 0;
-      }
-      if (millis() - mode_since > ORIENT_TIMEOUT_MS)
-        abortToManual();
+      break;
     }
+    const int duty = phaseDuty(millis() - mode_since, ALIGN_ROT_DUTY);
+    if (duty == 0) { // settle first
+      stopAll();
+      break;
+    }
+    // Rotate toward the lagging sensor, pivoting about the leading (present)
+    // sensor so it doesn't drift off the edge during the correction.
+    const float rot = (a && !b) ? -1.0f : +1.0f;
+    float vx_comp = 0.0f;
+    if (a && !b)
+      vx_comp = rot * PIVOT_GAIN; // left sensor leading (+c)
+    else if (b && !a)
+      vx_comp = -rot * PIVOT_GAIN; // right sensor leading (-c)
+    driveMixF(vx_comp, 0.0f, rot, duty);
+    if (!a && !b) {
+      if (both_lost_since == 0)
+        both_lost_since = millis();
+      else if (millis() - both_lost_since > LOST_TIMEOUT_MS)
+        abortToManual();
+    } else {
+      both_lost_since = 0;
+    }
+    if (millis() - mode_since > ORIENT_TIMEOUT_MS)
+      abortToManual();
     break;
-  case Mode::CenterSeek:
-    driveMix(1, 0, 0, CENTER_DUTY);
-    odoStep(+1);
+  }
+  case Mode::CenterSeek: {
+    const int duty = phaseDuty(millis() - mode_since, CENTER_DUTY);
+    if (duty == 0) { // settle
+      stopAll();
+      odoStep(0, 0);
+      break;
+    }
+    driveMix(1, 0, 0, duty);
+    odoStep(+1, duty);
     if (!a && !b) {
       x_far = odom_x;
       setMode(Mode::CenterReturn);
@@ -222,7 +267,14 @@ inline void alignUpdate(float vx, float vy, float w) {
       abortToManual();
     }
     break;
+  }
   case Mode::CenterReturn: {
+    const int duty = phaseDuty(millis() - mode_since, CENTER_DUTY);
+    if (duty == 0) { // settle before reversing -> clean stiction break
+      stopAll();
+      odoStep(0, 0);
+      break;
+    }
     const float target = 0.5f * x_far - FRONT_OFFSET_MM;
     const float err = target - odom_x;
     if (fabsf(err) <= CENTER_TOL_MM) {
@@ -230,8 +282,8 @@ inline void alignUpdate(float vx, float vy, float w) {
       setMode(Mode::Centered);
     } else {
       const int dir = (err > 0) ? +1 : -1;
-      driveMix(dir, 0, 0, CENTER_DUTY);
-      odoStep(dir);
+      driveMix(dir, 0, 0, duty);
+      odoStep(dir, duty);
       if (millis() - mode_since > CENTER_TIMEOUT_MS)
         abortToManual();
     }

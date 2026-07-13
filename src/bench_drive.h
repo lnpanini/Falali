@@ -25,7 +25,7 @@ inline const char *WHEEL[4] = {"FL", "FR", "RL", "RR"};
 
 // Per-wheel direction calibration (FL, FR reversed on hardware; RL, RR normal).
 inline bool g_invert[4] = {true, true, false, false};
-inline int g_speed = 180; // manual max duty 0..255
+inline int g_speed = 255; // manual max duty 0..255 (full duty; set motor V via the buck)
 inline int g_sel = -1;    // wheel selected for serial calibration
 
 inline void driveMotorsInit() {

@@ -131,7 +131,12 @@ static uint16_t readOne(VL53L0X &s, bool ok, uint8_t muxCh, bool *valid) {
   if (useMux)
     muxSelect(muxCh);
   const uint16_t mm = s.readRangeContinuousMillimeters();
-  *valid = !s.timeoutOccurred() && mm < 8000;
+  // Reject no-target / signal-fail glitches at the source: only device range
+  // status 11 is a valid measurement. Without this the sensor's spurious short
+  // reads (e.g. a stray ~159 mm on open air) pass the band test and false-fire
+  // the auto-align. 0x14 = RESULT_RANGE_STATUS; status is bits [6:3].
+  const uint8_t rangeStatus = (s.readReg(0x14) & 0x78) >> 3;
+  *valid = !s.timeoutOccurred() && rangeStatus == 11 && mm < 8000;
   return mm;
 }
 
@@ -199,6 +204,7 @@ static Mode mode = Mode::Manual;
 static uint32_t mode_since = 0;
 static uint32_t both_lost_since = 0;
 static bool prev_any = false; // for rising-edge auto-trigger
+static bool armed = false;     // auto-trigger only after a confirmed "no board" baseline
 static bool auto_trigger = true;
 
 // Dead-reckon odometry for CENTER_X — integrates the commanded creep velocity.
@@ -386,8 +392,11 @@ void loop() {
   const bool a = presA.present, b = presB.present, any = a || b;
 
   // Auto-trigger on the rising edge of "a front sensor sees the board" while
-  // driving manually.
-  if (mode == Mode::Manual && auto_trigger && any && !prev_any)
+  // driving manually — but only after we've first confirmed a clear "no board"
+  // baseline, so a boot-time / no-target glitch reading can't fire ORIENT.
+  if (!any)
+    armed = true; // saw genuine clear space -> arm the trigger
+  if (mode == Mode::Manual && auto_trigger && armed && any && !prev_any)
     startOrient("edge sensed");
   prev_any = any;
 

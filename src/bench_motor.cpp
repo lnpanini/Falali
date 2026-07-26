@@ -96,6 +96,8 @@
 #include <SerialCommands.h>
 #include <Wire.h>
 #include <AS5600.h>
+#include "StallDetector.h"
+#include "MotorCalAnalysis.h"
 
 // ── Pins (ESP32-WROOM-32D) — validated against the WROOM pin rules ────────
 // GPIO16/17 are PSRAM on WROVER but FREE on WROOM-32D. GPIO2 is a strapping
@@ -176,6 +178,18 @@ int32_t  g_encPos  = 0;       // cumulative counts (signed, survives wraparound)
 int32_t  g_rpmPos  = 0;       // position at the last RPM window boundary
 uint32_t g_rpmTime = 0;
 float    g_rpm     = 0.0f;
+
+// Stall trip needs a faster RPM than the 500 ms status window: the trip fires at
+// 250 ms, so a 500 ms estimate could not resolve it. 100 ms gives ~2.5 samples
+// inside the trip window.
+constexpr uint32_t RPM_FAST_MS = 100;
+float    g_rpmFast   = 0.0f;
+int32_t  g_fastPos   = 0;
+uint32_t g_fastTime  = 0;
+
+// Break-away defaults to 40 until calsweep measures the real value.
+int g_breakAwayCmd = 40;
+tb::StallDetector g_stall;
 
 // ── Encoder ──────────────────────────────────────────────────────────────
 // Walk the bus and report every responder. This is the first thing to run when
@@ -299,7 +313,9 @@ static void printHelp() {
 }
 
 static void setCommand(int v, const char* why) {
+  const int before = g_targetSv;
   g_targetSv = constrain(v, 0, CMD_MAX);
+  if (g_targetSv > before) g_stall.noteCommandIncrease(millis());
   Serial.printf("> %s: cmd %d/255 (~%.2fV)\n",
                 why, g_targetSv, ESP_VMAX * g_targetSv / (float)CMD_MAX);
 }
@@ -315,11 +331,30 @@ static void estop() {
   Serial.println(F("*** E-STOP: disabled + braked + command 0 ***"));
 }
 
+// Every calibration routine refuses to start for the same two reasons, and both
+// otherwise present as "it just sits there": `x` latches the brake with no
+// auto-clear, and without an encoder there is no measurement and no stall trip.
+static bool calGuardOk(const char* what) {
+  if (!g_encOk) {
+    Serial.printf("! %s needs the encoder — none detected (run `scan`)\n", what);
+    return false;
+  }
+  if (g_brake) {
+    Serial.printf("! %s refused: brake is latched. Send `n` to release, then retry.\n", what);
+    return false;
+  }
+  return true;
+}
+
 // ── Console handlers ─────────────────────────────────────────────────────
 // SerialCommands dispatches one-key commands on the FIRST character received,
 // before any terminator — so `x` cuts the motor the instant the key is pressed
 // rather than waiting for Enter. That is the whole reason for using it here.
-static void cmdEnable (SerialCommands*) { g_enabled = true;  Serial.println(F("> ENABLE"));    }
+static void cmdEnable (SerialCommands*) {
+  g_enabled = true;
+  g_stall.reset(millis());
+  Serial.println(F("> ENABLE"));
+}
 static void cmdDisable(SerialCommands*) { g_enabled = false; Serial.println(F("> DISABLE"));   }
 static void cmdFwd    (SerialCommands*) { g_forward = true;  Serial.println(F("> FORWARD"));   }
 static void cmdRev    (SerialCommands*) { g_forward = false; Serial.println(F("> REVERSE"));   }
@@ -471,6 +506,23 @@ void loop() {
   if (g_encOk && now - tEnc >= ENC_TICK_MS) {
     tEnc = now;
     g_encPos = g_enc.getCumulativePosition();
+  }
+
+  if (g_encOk && now - g_fastTime >= RPM_FAST_MS) {
+    const uint32_t dt = now - g_fastTime;
+    if (g_fastTime && dt)
+      g_rpmFast = (g_encPos - g_fastPos) * 60000.0f / ((float)ENC_CPR * dt);
+    g_fastPos  = g_encPos;
+    g_fastTime = now;
+
+    // Armed whenever the driver is live. Not gated on any routine running —
+    // manual `s`/`+` driving gets the same protection.
+    if (g_enabled && !g_brake && g_stall.update(now, g_targetSv, g_rpmFast)) {
+      Serial.printf("\n*** STALL TRIP at cmd %d — commanded but not turning ***\n",
+                    g_stall.trippedAtCmd());
+      Serial.println(F("*** SV cut, brake asserted. Check for a jam before retrying. ***"));
+      estop();
+    }
   }
 
   if (now - tStatus >= STATUS_MS) {

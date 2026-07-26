@@ -39,12 +39,13 @@ int dropOutCmd(const CalPoint* pts, size_t n, float rpm_floor) {
   return last;
 }
 
-int kneeCmd(const CalPoint* pts, size_t n, const LinearFit& fit, float tol_pct) {
+int kneeCmd(const CalPoint* pts, size_t n, const LinearFit& fit, float tol_pct, float rpm_floor) {
   if (!pts || !fit.valid) return -1;
   for (size_t i = 0; i < n; i++) {
+    const float measured = absf(pts[i].rpm);
+    if (measured < rpm_floor) continue;           // stationary/deadband, not a knee
     const float predicted = fit.slope_rpm_per_volt * pts[i].sv_volts + fit.intercept_rpm;
     if (predicted <= 0.0f) continue;              // below the useful range
-    const float measured = absf(pts[i].rpm);
     const float err_pct = 100.0f * (predicted - measured) / predicted;
     if (err_pct > tol_pct) return pts[i].cmd;     // fell short of the line
   }

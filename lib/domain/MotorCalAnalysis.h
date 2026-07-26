@@ -33,8 +33,9 @@ int breakAwayCmd(const CalPoint* pts, size_t n, float rpm_floor);
 int dropOutCmd(const CalPoint* pts, size_t n, float rpm_floor);
 
 // First command where |rpm| departs the fit by more than tol_pct. -1 if the
-// curve stays linear throughout. Points below the fit's usable range are skipped.
-int kneeCmd(const CalPoint* pts, size_t n, const LinearFit& fit, float tol_pct);
+// curve stays linear throughout. Points whose |rpm| is below rpm_floor are
+// skipped — a stationary motor below break-away is not a saturation knee.
+int kneeCmd(const CalPoint* pts, size_t n, const LinearFit& fit, float tol_pct, float rpm_floor);
 
 // motor_counts / (cpr * wheel_revs). Uses |motor_counts| so FR=LOW works.
 // Returns 0 when wheel_revs is 0 (caller treats as invalid).

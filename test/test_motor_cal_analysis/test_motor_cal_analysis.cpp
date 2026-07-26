@@ -22,6 +22,29 @@ static size_t makeCurve(CalPoint* out, int break_away, float slope) {
   return n;
 }
 
+// Same full sweep shape (33 points, dead below break_away) but the RPM flattens
+// to a constant ceiling above knee_cmd, so there is a genuine saturation knee
+// after a genuine deadband.
+static size_t makeSaturatingCurve(CalPoint* out, int break_away, float slope, int knee_cmd) {
+  size_t n = 0;
+  float ceiling = 0.0f;
+  for (int i = 0; i <= 32; i++) {
+    int cmd = i * 8; if (cmd > 255) cmd = 255;
+    float v = 3.3f * cmd / 255.0f;
+    float rpm;
+    if (cmd < break_away) {
+      rpm = 0.0f;
+    } else if (cmd <= knee_cmd) {
+      rpm = slope * v;
+      ceiling = rpm;
+    } else {
+      rpm = ceiling;
+    }
+    out[n++] = CalPoint{cmd, v, rpm};
+  }
+  return n;
+}
+
 void test_fit_recovers_known_slope() {
   CalPoint pts[33];
   size_t n = makeCurve(pts, 0, 1012.0f);   // no deadband -> pure line
@@ -82,7 +105,7 @@ void test_knee_detects_saturation() {
     {200, 2.59f, 2100.0f},   // saturated: fit predicts ~2621
   };
   LinearFit f = fitLinear(pts, 4);       // fit only the linear span
-  int knee = kneeCmd(pts, 5, f, 5.0f);
+  int knee = kneeCmd(pts, 5, f, 5.0f, 5.0f);
   TEST_ASSERT_EQUAL_INT(200, knee);
 }
 
@@ -90,7 +113,57 @@ void test_knee_returns_minus_one_when_linear_throughout() {
   CalPoint pts[33];
   size_t n = makeCurve(pts, 0, 1012.0f);
   LinearFit f = fitLinear(pts, n);
-  TEST_ASSERT_EQUAL_INT(-1, kneeCmd(pts, n, f, 5.0f));
+  TEST_ASSERT_EQUAL_INT(-1, kneeCmd(pts, n, f, 5.0f, 5.0f));
+}
+
+void test_knee_ignores_deadband_before_break_away() {
+  // Regression test: a motor that is dead below break-away and perfectly
+  // linear above it must NOT read as saturated at the first commanded point.
+  CalPoint pts[33];
+  size_t n = makeCurve(pts, 40, 1012.0f);
+  // Fit only the moving points (cmd >= 40, indices 5..32) — the deadband
+  // itself is never part of a real fit.
+  LinearFit f = fitLinear(pts + 5, n - 5);
+  TEST_ASSERT_TRUE(f.valid);
+  // Call kneeCmd on the FULL sweep, deadband included. The curve is linear
+  // throughout its operating region, so there is no knee.
+  TEST_ASSERT_EQUAL_INT(-1, kneeCmd(pts, n, f, 5.0f, 5.0f));
+}
+
+void test_knee_finds_saturation_past_a_deadband() {
+  // Same full sweep shape, dead below cmd 40, but flattened to a ceiling
+  // above cmd 80 — a genuine knee after a genuine deadband.
+  CalPoint pts[33];
+  size_t n = makeSaturatingCurve(pts, 40, 1012.0f, 80);
+  // Fit only the moving, still-linear points: cmd 40..80 (indices 5..10).
+  LinearFit f = fitLinear(pts + 5, 6);
+  TEST_ASSERT_TRUE(f.valid);
+  int knee = kneeCmd(pts, n, f, 5.0f, 5.0f);
+  TEST_ASSERT_EQUAL_INT(88, knee);   // first saturated command, not a deadband one
+}
+
+void test_fit_invalid_when_voltage_never_varies() {
+  // n >= 2, but sv_volts is identical on every point -> no spread in x.
+  CalPoint pts[3] = {
+    {100, 1.5f, 500.0f},
+    {150, 1.5f, 700.0f},
+    {200, 1.5f, 900.0f},
+  };
+  TEST_ASSERT_FALSE(fitLinear(pts, 3).valid);
+}
+
+void test_gear_ratio_zero_cpr_is_invalid() {
+  TEST_ASSERT_FLOAT_WITHIN(0.001f, 0.0f, gearRatio(614400, 10.0f, 0));
+}
+
+void test_knee_returns_minus_one_on_invalid_fit() {
+  CalPoint pts[3] = {
+    { 40, 0.52f,  526.0f},
+    { 80, 1.03f, 1042.0f},
+    {120, 1.55f, 1569.0f},
+  };
+  LinearFit invalid_fit{};   // default-constructed: valid == false
+  TEST_ASSERT_EQUAL_INT(-1, kneeCmd(pts, 3, invalid_fit, 5.0f, 5.0f));
 }
 
 void test_gear_ratio_exact() {
@@ -123,6 +196,11 @@ int main(int, char**) {
   RUN_TEST(test_hysteresis_is_break_away_minus_drop_out);
   RUN_TEST(test_knee_detects_saturation);
   RUN_TEST(test_knee_returns_minus_one_when_linear_throughout);
+  RUN_TEST(test_knee_ignores_deadband_before_break_away);
+  RUN_TEST(test_knee_finds_saturation_past_a_deadband);
+  RUN_TEST(test_fit_invalid_when_voltage_never_varies);
+  RUN_TEST(test_gear_ratio_zero_cpr_is_invalid);
+  RUN_TEST(test_knee_returns_minus_one_on_invalid_fit);
   RUN_TEST(test_gear_ratio_exact);
   RUN_TEST(test_gear_ratio_detects_mislabelled_box);
   RUN_TEST(test_gear_ratio_zero_revs_is_invalid);

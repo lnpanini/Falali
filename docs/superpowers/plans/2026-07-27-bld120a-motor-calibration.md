@@ -307,7 +307,7 @@ All the curve arithmetic. Kept out of the firmware so it can be tested against s
 
 **Interfaces:**
 - Consumes: nothing
-- Produces: `tb::CalPoint{ int cmd; float sv_volts; float rpm; }`, `tb::LinearFit{ float slope_rpm_per_volt; float intercept_rpm; bool valid; }`, and free functions `LinearFit fitLinear(const CalPoint*, size_t)`, `int breakAwayCmd(const CalPoint*, size_t, float)`, `int dropOutCmd(const CalPoint*, size_t, float)`, `int kneeCmd(const CalPoint*, size_t, const LinearFit&, float)`, `float gearRatio(int32_t, float, int32_t)`
+- Produces: `tb::CalPoint{ int cmd; float sv_volts; float rpm; }`, `tb::LinearFit{ float slope_rpm_per_volt; float intercept_rpm; bool valid; }`, and free functions `LinearFit fitLinear(const CalPoint*, size_t)`, `int breakAwayCmd(const CalPoint*, size_t, float)`, `int dropOutCmd(const CalPoint*, size_t, float)`, `int kneeCmd(const CalPoint*, size_t, const LinearFit&, float, float)`, `float gearRatio(int32_t, float, int32_t)`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -398,7 +398,7 @@ void test_knee_detects_saturation() {
     {200, 2.59f, 2100.0f},   // saturated: fit predicts ~2621
   };
   LinearFit f = fitLinear(pts, 4);       // fit only the linear span
-  int knee = kneeCmd(pts, 5, f, 5.0f);
+  int knee = kneeCmd(pts, 5, f, 5.0f, 5.0f);
   TEST_ASSERT_EQUAL_INT(200, knee);
 }
 
@@ -406,7 +406,7 @@ void test_knee_returns_minus_one_when_linear_throughout() {
   CalPoint pts[33];
   size_t n = makeCurve(pts, 0, 1012.0f);
   LinearFit f = fitLinear(pts, n);
-  TEST_ASSERT_EQUAL_INT(-1, kneeCmd(pts, n, f, 5.0f));
+  TEST_ASSERT_EQUAL_INT(-1, kneeCmd(pts, n, f, 5.0f, 5.0f));
 }
 
 void test_gear_ratio_exact() {
@@ -492,8 +492,9 @@ int breakAwayCmd(const CalPoint* pts, size_t n, float rpm_floor);
 int dropOutCmd(const CalPoint* pts, size_t n, float rpm_floor);
 
 // First command where |rpm| departs the fit by more than tol_pct. -1 if the
-// curve stays linear throughout. Points below the fit's usable range are skipped.
-int kneeCmd(const CalPoint* pts, size_t n, const LinearFit& fit, float tol_pct);
+// curve stays linear throughout. Points whose |rpm| is below rpm_floor are
+// skipped — a stationary motor below break-away is not a saturation knee.
+int kneeCmd(const CalPoint* pts, size_t n, const LinearFit& fit, float tol_pct, float rpm_floor);
 
 // motor_counts / (cpr * wheel_revs). Uses |motor_counts| so FR=LOW works.
 // Returns 0 when wheel_revs is 0 (caller treats as invalid).
@@ -546,12 +547,13 @@ int dropOutCmd(const CalPoint* pts, size_t n, float rpm_floor) {
   return last;
 }
 
-int kneeCmd(const CalPoint* pts, size_t n, const LinearFit& fit, float tol_pct) {
+int kneeCmd(const CalPoint* pts, size_t n, const LinearFit& fit, float tol_pct, float rpm_floor) {
   if (!pts || !fit.valid) return -1;
   for (size_t i = 0; i < n; i++) {
+    const float measured = absf(pts[i].rpm);
+    if (measured < rpm_floor) continue;           // stationary/deadband, not a knee
     const float predicted = fit.slope_rpm_per_volt * pts[i].sv_volts + fit.intercept_rpm;
     if (predicted <= 0.0f) continue;              // below the useful range
-    const float measured = absf(pts[i].rpm);
     const float err_pct = 100.0f * (predicted - measured) / predicted;
     if (err_pct > tol_pct) return pts[i].cmd;     // fell short of the line
   }

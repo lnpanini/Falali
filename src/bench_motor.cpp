@@ -663,8 +663,13 @@ static void cmdWheelRevs(SerialCommands* s) {
   const char* arg = s->Next();
   if (!arg) { Serial.println(F("? usage: wheelrevs <wheel revolutions observed>")); return; }
   const float revs = atof(arg);
+  // Validate the INPUT, not the result. gearRatio() takes |wheel_revs| — that is
+  // deliberate, so an FR=LOW run with negative counts still yields a positive
+  // ratio — but it means a typo'd `wheelrevs -10` would sail past a result-based
+  // check and print a plausible row computed as if you had typed +10.
+  if (revs <= 0.0f) { Serial.println(F("? revolutions must be > 0")); return; }
   const float measured = tb::gearRatio(g_gearCounts, revs, ENC_CPR);
-  if (measured <= 0.0f) { Serial.println(F("? revolutions must be > 0")); return; }
+  if (measured <= 0.0f) { Serial.println(F("? no motion recorded — nothing to divide")); return; }
   const float err = 100.0f * (measured - GEAR_RATIO) / GEAR_RATIO;
   Serial.println(F("CSV,gear,motor_counts,wheel_revs_reported,measured_ratio,label_ratio,error_pct"));
   Serial.printf("CSV,gear,%ld,%.2f,%.4f,%.2f,%+.2f\n",

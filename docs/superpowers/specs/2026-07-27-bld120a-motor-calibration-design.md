@@ -149,10 +149,18 @@ captures:
 ### Output
 
 ```
-CSV,step,phase,t_ms,cmd,rpm_motor
+CSV,step,phase,t_ms,cmd,rpm_motor,counts
 ```
 
 `phase` is `rise` / `coast` / `brake`. `t_ms` is relative to the start of that capture.
+
+`counts` (cumulative encoder position) was **added during implementation** and is
+the column to differentiate for time constants. Rows are emitted at 250 Hz, but
+`rpm_motor` is derived from a 100 ms window sized for the stall trip — so ~25
+consecutive rows repeat the same RPM value. That zero-order-hold staircase cannot
+yield a time constant, which is this capture's whole purpose. `counts` updates at
+the full 250 Hz, so no resolution is lost at capture time and the host chooses its
+own smoothing. Treat sub-100 ms structure in `rpm_motor` as an artefact.
 
 ---
 
@@ -174,6 +182,13 @@ revolutions easiest to count by eye.
    encoder keeps counting through spin-down, so coast does not corrupt the result.
 5. User reports observed wheel revolutions (mark the wheel first).
 6. `measured_ratio = motor_counts / (4096 × wheel_revs)`, compared against 15.
+
+The reporting command is **`wheelrevs <n>`**, not `revs`. Renamed during
+implementation: `SerialCommands` dispatches one-key commands on the first
+character typed, and both `r` (reverse) and `e` (enable) are registered one-key
+commands — so typing `revs 10` would have fired REVERSE and then ENABLE on a live
+motor before the handler ever ran. Any future command name must be checked against
+the one-key set `e d f r b n + - x ? z m`.
 
 Deliberately **not** "stop at exactly 61 440 counts": the shaft coasts after power is
 cut, so the resting position would not equal the target and the error would be read

@@ -410,6 +410,19 @@ static void cmdVolts(SerialCommands* s) {
 static void cmdSweep(SerialCommands*) {
   if (!g_enabled) { Serial.println(F("? enable first (e), then sweep")); return; }
   g_sweep = true; g_sweepDir = +1; g_sweepNext = 0;
+  // Open the stall grace window ONCE here, at sweep start — do NOT move this into
+  // the per-step ramp loop. sweep steps every 100 ms but StallConfig::grace_ms is
+  // 300 ms: a call on every rising step (as a prior version did) re-extends
+  // grace_until_ before the previous window has expired, so the detector never
+  // leaves its grace window for nearly the whole ramp and the trip is effectively
+  // disabled until the ramp ends — precisely when a locked rotor should have
+  // tripped ~250 ms after crossing break-away. One window here is sufficient: the
+  // motor measures 1012 RPM/V, so a healthy rotor clears the 5 RPM floor within
+  // milliseconds of crossing break-away, and there is no legitimate point later in
+  // the ramp where a working motor reads under 5 RPM. This single 300 ms window
+  // covers only the initial break-away transient; the trip stays armed for the
+  // rest of the ramp, which is the protection working as intended, not a risk.
+  g_stall.noteCommandIncrease(millis());
   Serial.println(F("> SWEEP 0 -> max -> 0 (send x to abort)"));
 }
 
@@ -495,19 +508,15 @@ void loop() {
   // Auto-sweep walks the target; the slew limiter below still smooths it.
   if (g_sweep && now >= g_sweepNext) {
     g_sweepNext = now + 100;
-    const int before = g_targetSv;
     g_targetSv += g_sweepDir * 16;
     if (g_targetSv >= CMD_MAX) { g_targetSv = CMD_MAX; g_sweepDir = -1; }
     else if (g_targetSv <= 0)  { g_targetSv = 0; g_sweep = false;
                                  Serial.println(F("> sweep complete")); }
-    // Sweep mutates g_targetSv directly instead of going through setCommand()
-    // (which would print a line every 100 ms step), so it must open the grace
-    // window itself on rising steps. Without this, a sweep ramp past
-    // break-away runs with zero grace protection and can false-trip the stall
-    // detector, aborting the very routine meant to characterize the motor.
-    // Only on a rise: the falling leg is a command DEcrease and must not mask
-    // a genuine stall on the way down.
-    if (g_targetSv > before) g_stall.noteCommandIncrease(now);
+    // Do NOT call g_stall.noteCommandIncrease() here. The grace window for a
+    // sweep is opened exactly once, in cmdSweep() at sweep start — see the
+    // comment there for why a per-step call in this loop is wrong (100 ms
+    // step cadence vs. 300 ms grace re-extends the window forever and disables
+    // the trip for nearly the whole ramp).
   }
 
   if (now - tTick >= TICK_MS) {

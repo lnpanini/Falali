@@ -370,13 +370,29 @@ static bool calGuardOk(const char* what) {
 static void cmdEnable (SerialCommands*) {
   g_enabled = true;
   g_stall.reset(millis());
+  // reset() alone leaves ZERO grace (grace_until_ == now): g_sv has collapsed
+  // to 0 while disabled and re-ramps from a standstill at SLEW_STEP/TICK_MS,
+  // but g_targetSv may already be at/above break-away from before. Without a
+  // fresh window, update() would see "commanded, not turning" on the very
+  // next sample and trip on a motor that hasn't had any real chance to spin
+  // up. noteCommandIncrease() must run AFTER reset(), since reset() is what
+  // sets grace_until_ = now in the first place.
+  g_stall.noteCommandIncrease(millis());
   Serial.println(F("> ENABLE"));
 }
 static void cmdDisable(SerialCommands*) { g_enabled = false; Serial.println(F("> DISABLE"));   }
 static void cmdFwd    (SerialCommands*) { g_forward = true;  Serial.println(F("> FORWARD"));   }
 static void cmdRev    (SerialCommands*) { g_forward = false; Serial.println(F("> REVERSE"));   }
 static void cmdBrake  (SerialCommands*) { g_brake   = true;  Serial.println(F("> BRAKE on"));  }
-static void cmdNoBrake(SerialCommands*) { g_brake   = false; Serial.println(F("> brake off")); }
+static void cmdNoBrake(SerialCommands*) {
+  g_brake = false;
+  // Same rationale as cmdEnable(): releasing the brake lets g_sv re-ramp from
+  // 0 toward whatever g_targetSv already is, so a fresh grace window is
+  // needed or a stale/expired one lets the resume read as a locked rotor.
+  // Unconditional is fine — below break-away update() already skips policing.
+  g_stall.noteCommandIncrease(millis());
+  Serial.println(F("> brake off"));
+}
 static void cmdUp     (SerialCommands*) { setCommand(g_targetSv + 8, "nudge up");   }
 static void cmdDown   (SerialCommands*) { setCommand(g_targetSv - 8, "nudge down"); }
 static void cmdEstop  (SerialCommands*) { estop(); }

@@ -286,6 +286,13 @@ noise. A mismatch means something changed since 2026-07-27, not that the curve i
 
 ## Open items
 
+- **HARDWARE STATUS (as of 2026-07-27): NEVER RUN ON HARDWARE.** The stall trip
+  and all three calibration routines (calsweep, calstep, calgear) are
+  host-unit-tested and compile-clean only — none of them has ever executed
+  against the real BLD-120A + motor + AS5600 on this bench. The first bench
+  session is a bring-up, not a calibration run: verify the stall trip fires
+  with a deliberate hand-held stall at a low command before trusting it for
+  any unattended run.
 - Gearbox ratio 15:1 is user-supplied and verified only by Phase 3.
 - Magnet airgap: AGC is currently railed at max gain (128/128 at 3.3 V), meaning the
   magnet sits too far from the chip. Tracking is stable now but has no margin.

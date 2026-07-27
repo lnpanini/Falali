@@ -97,15 +97,30 @@ void test_hysteresis_is_break_away_minus_drop_out() {
 
 void test_knee_detects_saturation() {
   // Linear to cmd 160, then hard flat — the knee must land at the departure.
-  CalPoint pts[5] = {
+  //
+  // tol_pct and rpm_floor are deliberately DISTINCT here (5.0 / 20.0), not the
+  // 5.0/5.0 every call site used to share. With identical values, swapping the
+  // two parameters at the call site is invisible: nothing in the test would
+  // fail regardless of which one lands in which slot. The inserted cmd=90
+  // sample (10 RPM — a below-floor dropout sitting between the fit's later
+  // points and the saturation point) is what makes that swap visible: with the
+  // arguments in the RIGHT order, rpm_floor=20 skips it (10 < 20, ordinary
+  // deadband noise) and the knee is still correctly found at cmd 200. Swap the
+  // two literals below (kneeCmd(pts, 6, f, 20.0f, 5.0f)) and rpm_floor becomes
+  // 5: the noise sample is no longer skipped (10 >= 5), its ~99% deviation
+  // trips against the now-20% tolerance, and the function returns 90 instead
+  // of 200 — the assertion below fails. Manually confirmed by temporarily
+  // swapping the two arguments and re-running `pio test -e native`.
+  CalPoint pts[6] = {
     { 40, 0.52f,  526.0f},
     { 80, 1.03f, 1042.0f},
     {120, 1.55f, 1569.0f},
     {160, 2.07f, 2095.0f},
+    { 90, 1.165f,  10.0f},   // below-floor noise dropout, NOT part of the fit
     {200, 2.59f, 2100.0f},   // saturated: fit predicts ~2621
   };
-  LinearFit f = fitLinear(pts, 4);       // fit only the linear span
-  int knee = kneeCmd(pts, 5, f, 5.0f, 5.0f);
+  LinearFit f = fitLinear(pts, 4);       // fit only the linear span (unaffected by the noise point)
+  int knee = kneeCmd(pts, 6, f, 5.0f, 20.0f);
   TEST_ASSERT_EQUAL_INT(200, knee);
 }
 

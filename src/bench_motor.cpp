@@ -87,6 +87,15 @@
  *   Watch the RUN/ALM LED for faults the software can't see (driver-side
  *   shorts, MOSFETs failed closed).
  *
+ *   *** HARDWARE STATUS (as of 2026-07-27): NEVER RUN ON HARDWARE ***
+ *   The stall trip above and all three calibration routines (calsweep,
+ *   calstep, calgear) are host-unit-tested and compile-clean ONLY — none of
+ *   them has ever executed against the real BLD-120A + motor + AS5600 on this
+ *   bench. Treat the first bench session as a BRING-UP, not a calibration
+ *   run: before trusting the trip for any unattended run (calsweep's ~158 s,
+ *   or any calstep/calgear), verify it actually fires with a deliberate
+ *   hand-held stall at a LOW command first.
+ *
  * ── Control-line electrical model ────────────────────────────────────────
  *   A COM terminal means EN/F-R/BRK activate by being pulled to COM, so they
  *   default to OPEN-DRAIN: LOW = pull to COM = assert, HIGH = release (Hi-Z),
@@ -204,7 +213,16 @@ float    g_rpmFast   = 0.0f;
 int32_t  g_fastPos   = 0;
 uint32_t g_fastTime  = 0;
 
-// Break-away defaults to 40 until calsweep measures the real value.
+// Fixed conservative assumption — NOT measured or written by any code path
+// here; calsweep only logs CSV rows, the actual break-away point comes from
+// host-side analysis of that output (see MotorCalAnalysis::breakAwayCmd) and
+// is never fed back into the firmware. This is also an unsynchronised
+// duplicate of StallConfig::break_away_cmd below: g_stall is
+// default-constructed, so that copy happens to be 40 too, but nothing keeps
+// the two in step — if this value is ever hand-updated from a calsweep
+// result, g_stall's config must be updated to match or the "below break-away,
+// won't turn" guards here and the stall trip's own break-away gate will
+// silently disagree.
 int g_breakAwayCmd = 40;
 tb::StallDetector g_stall;
 
@@ -369,8 +387,14 @@ static void printStatus() {
   Serial.printf("  MEAS:%.2fV", measured);
 #endif
   // The only real feedback on this rig: the driver has no FG and no ALM.
-  if (g_encOk) Serial.printf("  ENC:%+8.1fRPM %+7ldct", g_rpm, (long)g_encPos);
-  else         Serial.print(F("  ENC:--"));
+  if (g_encOk) {
+    Serial.printf("  ENC:%+8.1fRPM %+7ldct", g_rpm, (long)g_encPos);
+  } else {
+    // "ENC:--" alone reads as a minor telemetry gap and scrolls off in a
+    // second at 2 Hz. It is actually "the stall trip cannot run" — say so on
+    // every single status line, not just once at boot.
+    Serial.print(F("  ENC:-- *** NO STALL PROTECTION: manual driving UNPROTECTED ***"));
+  }
   Serial.println();
 }
 
@@ -428,20 +452,22 @@ static bool calGuardOk(const char* what) {
   return true;
 }
 
-// A running calsweep, calstep, or calgear owns g_targetSv/g_forward/g_brake
-// for its full run and logs a CSV row per point/sample — the "commanded"
-// columns are the routine's own bookkeeping, not a read of the live state.
-// Any other command that touches those same variables (sweep's own
-// g_targetSv writes, b/d/f/r, or one of the other calibration routines
-// starting) races the run silently: nothing prints, but the CSV columns
-// diverge from what the driver actually saw, and the whole run is corrupted
-// with no indication anything went wrong. All three routines share this one
-// guard so none can clobber another — a gate that stopped calsweep-vs-calstep
-// but let calgear start mid-sweep (or a sweep start mid-gear-run) would be
-// worse than no gate at all, since it reads as protection while leaving that
-// exact corruption path open.
-// `x` (e-stop) is deliberately NOT gated by this — it must always be able to
-// cut power.
+// A running calsweep, calstep, or calgear owns g_targetSv/g_forward/g_brake/
+// g_enabled/g_encPos for its full run and logs a CSV row per point/sample —
+// the "commanded" columns are the routine's own bookkeeping, not a read of
+// the live state. Any other command that touches those same variables
+// (sweep's own g_targetSv writes, b/d/f/r/e, s/v/+/- which all write
+// g_targetSv directly, z which zeroes the encoder position the routines are
+// taking deltas against, or one of the other calibration routines starting)
+// races the run silently: nothing prints, but the CSV columns diverge from
+// what the driver actually saw, and the whole run is corrupted with no
+// indication anything went wrong. All three routines share this one guard so
+// none can clobber another — a gate that stopped calsweep-vs-calstep but let
+// calgear start mid-sweep (or a sweep start mid-gear-run) would be worse than
+// no gate at all, since it reads as protection while leaving that exact
+// corruption path open.
+// `x` (e-stop) and `n` (brake release, needed for recovery) are deliberately
+// NOT gated by this — e-stop must always be able to cut power.
 static bool calBusy(const char* what) {
   // Done (calsweep/calstep) and AwaitCount (calgear) are finished, latched
   // resting states — cleared only by x/estop() or, for calgear, by
@@ -467,6 +493,7 @@ static bool calBusy(const char* what) {
 // before any terminator — so `x` cuts the motor the instant the key is pressed
 // rather than waiting for Enter. That is the whole reason for using it here.
 static void cmdEnable (SerialCommands*) {
+  if (calBusy("e")) return;
   g_enabled = true;
   g_stall.reset(millis());
   // reset() alone leaves ZERO grace (grace_until_ == now): g_sv has collapsed
@@ -504,14 +531,21 @@ static void cmdNoBrake(SerialCommands*) {
   g_stall.noteCommandIncrease(millis());
   Serial.println(F("> brake off"));
 }
-static void cmdUp     (SerialCommands*) { setCommand(g_targetSv + 8, "nudge up");   }
-static void cmdDown   (SerialCommands*) { setCommand(g_targetSv - 8, "nudge down"); }
+static void cmdUp     (SerialCommands*) {
+  if (calBusy("+")) return;
+  setCommand(g_targetSv + 8, "nudge up");
+}
+static void cmdDown   (SerialCommands*) {
+  if (calBusy("-")) return;
+  setCommand(g_targetSv - 8, "nudge down");
+}
 static void cmdEstop  (SerialCommands*) { estop(); }
 static void cmdHelp   (SerialCommands*) { printHelp(); printStatus(); }
 static void cmdMagnet (SerialCommands*) { encMagnetReport(); }
 static void cmdScan   (SerialCommands*) { i2cScan(); }
 
 static void cmdZero(SerialCommands*) {
+  if (calBusy("z")) return;
   if (!g_encOk) { Serial.println(F("! encoder not connected")); return; }
   g_enc.resetCumulativePosition(0);
   g_encPos = g_rpmPos = 0;
@@ -519,12 +553,14 @@ static void cmdZero(SerialCommands*) {
 }
 
 static void cmdSet(SerialCommands* s) {
+  if (calBusy("s")) return;
   const char* arg = s->Next();
   if (!arg) { Serial.println(F("? usage: s <0-255>")); return; }
   setCommand(atoi(arg), "set");
 }
 
 static void cmdVolts(SerialCommands* s) {
+  if (calBusy("v")) return;
   const char* arg = s->Next();
   if (!arg) { Serial.println(F("? usage: v <volts, 0-3.3>")); return; }
   const float want = atof(arg);
@@ -755,8 +791,24 @@ void setup() {
 
   Serial.println(F("\nBLD-120A bench test ready (boots DISABLED, command 0)."));
   Serial.printf("SV mode: %s on GPIO%d\n", SV_USE_DAC ? "DAC1 analog" : "LEDC PWM", PIN_SV);
-  Serial.println(F("No PSU current limit on this bench -- protection is the driver's"));
-  Serial.println(F("Peak Power trim + the software stall trip. Watch for the trip message."));
+  // This claim is only true when the encoder is actually up: g_encOk gates the
+  // entire stall-trip block in loop(), so without it the trip is NEVER
+  // evaluated for the whole session and `e` then `s 255` runs at full command
+  // with zero automatic protection. calGuardOk() blocks the calibration
+  // routines without an encoder, but manual driving has no such guard — so the
+  // banner must not claim protection that isn't there. (This file already
+  // carries a commit whose entire purpose was correcting a false safety claim
+  // in this same header — see "corrected 2026-07-27" above. Don't reintroduce
+  // that mistake conditionally.)
+  if (g_encOk) {
+    Serial.println(F("No PSU current limit on this bench -- protection is the driver's"));
+    Serial.println(F("Peak Power trim + the software stall trip. Watch for the trip message."));
+  } else {
+    Serial.println(F("*** NO STALL PROTECTION: encoder absent. Manual driving is UNPROTECTED. ***"));
+    Serial.println(F("*** Only backstop is the driver's Peak Power trim (<=8A, position unverified)."));
+    Serial.println(F("*** No PSU current limit and the 10A fuse never opens at an 8A stall. Fix the"));
+    Serial.println(F("*** encoder (see `scan`/`m`) before any unattended manual driving. ***"));
+  }
   printHelp();
 }
 
@@ -964,6 +1016,12 @@ void loop() {
         if (g_brake && (stopped || now - g_stepT0 >= STEP_RISE_MS + STEP_STOP_MS)) {
           setCommand(0, "calstep complete");
           g_enabled = false;
+          // Release the brake capture here so a CLEAN finish leaves the rig in
+          // the same brake-off state calsweep and calgear both end in. Left
+          // latched, the documented calsweep -> calstep -> calgear workflow
+          // would hit calGuardOk()'s "brake is latched. Send n to release" on
+          // calgear — a message written for the x/e-stop path, not this one.
+          g_brake  = false;
           g_step = StepPhase::Done;
           Serial.println(F("> CALSTEP complete."));
         }

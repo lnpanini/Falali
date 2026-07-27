@@ -236,6 +236,21 @@ static int calCmdForLeg(int leg, int idx) {
   return calCmdForIndex(calLegIsUp(leg) ? idx : (CAL_POINTS - 1 - idx));
 }
 
+// ── Calibration: step response ───────────────────────────────────────────
+// Logs at the encoder sample rate, not the 2 Hz status rate — a time constant
+// cannot be extracted from 2 samples per second.
+constexpr uint32_t STEP_LOG_MS   = 4;
+constexpr uint32_t STEP_RISE_MS  = 2000;
+constexpr uint32_t STEP_STOP_MS  = 6000;   // cap on coast/brake captures
+constexpr float    STEP_STOP_RPM = 5.0f;   // "stopped" threshold
+
+enum class StepPhase : uint8_t { Idle, Rise, Settle, Coast, Brake, Done };
+
+StepPhase g_step     = StepPhase::Idle;
+int       g_stepCmd  = 0;
+uint32_t  g_stepT0   = 0;
+uint32_t  g_stepNext = 0;
+
 // ── Encoder ──────────────────────────────────────────────────────────────
 // Walk the bus and report every responder. This is the first thing to run when
 // the encoder misbehaves: 0x36 present = wiring + pull-ups are good, and any
@@ -372,6 +387,7 @@ static void estop() {
   g_sv       = 0;          // no ramp-down on an e-stop: collapse SV immediately
   g_sweep    = false;
   g_cal      = CalState::Idle;
+  g_step     = StepPhase::Idle;
   svWrite(0);
   applyOutputs();
   Serial.println(F("*** E-STOP: disabled + braked + command 0 ***"));
@@ -392,17 +408,25 @@ static bool calGuardOk(const char* what) {
   return true;
 }
 
-// A running calsweep owns g_targetSv/g_forward/g_brake for its full ~158 s and
-// logs a CSV row per point from calCmdForLeg() — the "commanded" columns are
-// calsweep's own bookkeeping, not a read of the live state. Any other command
-// that touches those same variables (sweep's own g_targetSv writes, b/d/f/r)
-// races calsweep silently: nothing prints, but the CSV `cmd`/`sv_volts`/
-// `fr_state` columns diverge from what the driver actually saw, and the whole
-// run is corrupted with no indication anything went wrong. `x` (e-stop) is
-// deliberately NOT gated by this — it must always be able to cut power.
+// A running calsweep or calstep owns g_targetSv/g_forward/g_brake for its
+// full run and logs a CSV row per point/sample — the "commanded" columns are
+// the routine's own bookkeeping, not a read of the live state. Any other
+// command that touches those same variables (sweep's own g_targetSv writes,
+// b/d/f/r, or the other calibration routine starting) races the run silently:
+// nothing prints, but the CSV columns diverge from what the driver actually
+// saw, and the whole run is corrupted with no indication anything went wrong.
+// Both routines share this one guard so neither can clobber the other — a
+// gate that only stopped calsweep-vs-others but let calstep start mid-sweep
+// (or vice versa) would be worse than no gate at all, since it reads as
+// protection while leaving that exact corruption path open.
+// `x` (e-stop) is deliberately NOT gated by this — it must always be able to
+// cut power.
 static bool calBusy(const char* what) {
-  if (g_cal == CalState::Idle) return false;
-  Serial.printf("! calsweep running — send x to abort first (%s ignored)\n", what);
+  const bool sweepBusy = (g_cal != CalState::Idle);
+  const bool stepBusy  = (g_step != StepPhase::Idle && g_step != StepPhase::Done);
+  if (!sweepBusy && !stepBusy) return false;
+  Serial.printf("! %s running — send x to abort first (%s ignored)\n",
+                sweepBusy ? "calsweep" : "calstep", what);
   return true;
 }
 
@@ -513,6 +537,38 @@ static void cmdCalSweep(SerialCommands*) {
   Serial.println(F("CSV,sweep,fr_state,leg_dir,cmd,sv_volts,rpm_motor,rpm_wheel,counts_delta,agc,mag_status"));
 }
 
+static void cmdCalStep(SerialCommands* s) {
+  // Same reasoning as cmdCalSweep(): refuse rather than silently restart, and
+  // refuse if the OTHER calibration routine owns the state right now — see
+  // calBusy()'s comment for why the guard has to cover both directions.
+  if (calBusy("calstep")) return;
+  if (!calGuardOk("calstep")) return;
+  const char* arg = s->Next();
+  if (!arg) { Serial.println(F("? usage: calstep <0-255>")); return; }
+  g_stepCmd = constrain(atoi(arg), 0, CMD_MAX);
+  if (g_stepCmd < g_breakAwayCmd) {
+    Serial.printf("! cmd %d is below break-away (%d) — it will not turn\n",
+                  g_stepCmd, g_breakAwayCmd);
+    return;
+  }
+  g_enabled = true; g_forward = true; g_brake = false;
+  g_stall.reset(millis());
+  g_step   = StepPhase::Rise;
+  g_stepT0 = millis();
+  g_stepNext = g_stepT0;
+  setCommand(g_stepCmd, "calstep rise");
+  // Explicit, unconditional grace — do NOT rely on setCommand()'s own
+  // noteCommandIncrease() call here. That call only fires when g_targetSv
+  // actually INCREASES; if a prior manual `s`/`v` left g_targetSv at or above
+  // g_stepCmd already, setCommand() sees no rise and opens no window, and
+  // reset() just above already zeroed grace_until_ to now. Same failure mode
+  // cmdEnable() guards against (see its comment) — call it directly so the
+  // rise is always covered regardless of what g_targetSv held before.
+  g_stall.noteCommandIncrease(millis());
+  Serial.println(F("> CALSTEP: rise -> coast -> brake. Send x to abort."));
+  Serial.println(F("CSV,step,phase,t_ms,cmd,rpm_motor"));
+}
+
 static void cmdUnknown(SerialCommands* s, const char* cmd) {
   s->GetSerial()->printf("? unknown '%s' — send ? for help\n", cmd);
 }
@@ -538,6 +594,7 @@ static SerialCommand c_set    ("s",     cmdSet);
 static SerialCommand c_volts  ("v",     cmdVolts);
 static SerialCommand c_sweep  ("sweep", cmdSweep);
 static SerialCommand c_calsweep("calsweep", cmdCalSweep);
+static SerialCommand c_calstep("calstep", cmdCalStep);
 static SerialCommand c_scan   ("scan",  cmdScan);
 
 // ── Setup / loop ─────────────────────────────────────────────────────────
@@ -580,6 +637,7 @@ void setup() {
   g_cli.AddCommand(&c_sweep);   g_cli.AddCommand(&c_scan);
   g_cli.AddCommand(&c_zero);    g_cli.AddCommand(&c_magnet);
   g_cli.AddCommand(&c_calsweep);
+  g_cli.AddCommand(&c_calstep);
 
   Serial.println(F("\nBLD-120A bench test ready (boots DISABLED, command 0)."));
   Serial.printf("SV mode: %s on GPIO%d\n", SV_USE_DAC ? "DAC1 analog" : "LEDC PWM", PIN_SV);
@@ -717,6 +775,79 @@ void loop() {
       setCommand(calCmdForLeg(g_calLeg, g_calIdx), "calsweep");
       g_cal = CalState::Settle;
       g_calUntil = now + CAL_SETTLE_MS;
+    }
+  }
+
+  // calstep: rise -> settle -> coast (power off, brake off) -> brake (power on,
+  // then brake) -> done. Coast and Brake deliberately stop the motor while
+  // g_targetSv is still nonzero — see the comments at each transition below for
+  // how that interacts with g_stall, which must stay armed the whole time.
+  if (g_step != StepPhase::Idle && g_step != StepPhase::Done && now >= g_stepNext) {
+    g_stepNext = now + STEP_LOG_MS;
+    const char* phase = (g_step == StepPhase::Rise)  ? "rise"
+                      : (g_step == StepPhase::Coast) ? "coast"
+                      : (g_step == StepPhase::Brake) ? "brake" : "settle";
+    if (g_step != StepPhase::Settle)
+      Serial.printf("CSV,step,%s,%lu,%d,%.1f\n",
+                    phase, (unsigned long)(now - g_stepT0), g_targetSv, g_rpmFast);
+
+    const bool stopped = fabsf(g_rpmFast) < STEP_STOP_RPM;
+    switch (g_step) {
+      case StepPhase::Rise:
+        if (now - g_stepT0 >= STEP_RISE_MS) {
+          g_step = StepPhase::Settle; g_stepT0 = now;   // hold before coasting
+        }
+        break;
+      case StepPhase::Settle:
+        if (now - g_stepT0 >= 500) {
+          // Coast = disabled with the brake OFF: pure mechanical friction.
+          // g_enabled goes false here, so the stall-trip gate below
+          // (`g_enabled && !g_brake && g_stall.update(...)`) short-circuits
+          // for the whole coast: g_stall.update() is simply never called
+          // while g_targetSv sits at g_stepCmd and the motor spins down on
+          // its own. That is the mechanism that keeps a deliberate coast from
+          // ever being mistaken for a stall — not a grace window, but the
+          // trip not running at all while the driver is disabled.
+          g_enabled = false; g_brake = false;
+          g_step = StepPhase::Coast; g_stepT0 = now;
+        }
+        break;
+      case StepPhase::Coast:
+        if (stopped || now - g_stepT0 >= STEP_STOP_MS) {
+          // Spin back up, then brake, so coast and brake are compared from the
+          // same starting speed.
+          g_enabled = true; g_brake = false;
+          setCommand(g_stepCmd, "calstep respin");
+          g_stall.reset(now);
+          // setCommand() above will NOT have opened a grace window: g_targetSv
+          // has held at g_stepCmd since Rise (nothing zeroed it during Settle
+          // or Coast), so setCommand()'s internal "did it increase?" check
+          // sees no change and skips noteCommandIncrease(). Left alone, reset()
+          // just above leaves grace_until_ == now (zero grace) at the exact
+          // moment the motor is commanded from a dead stop — the textbook
+          // false-trip case update() would otherwise flag on the very next
+          // 100 ms sample. Call it explicitly, same fix as cmdEnable()/
+          // cmdNoBrake() already apply to their own resume paths.
+          g_stall.noteCommandIncrease(now);
+          g_step = StepPhase::Brake; g_stepT0 = now;
+        }
+        break;
+      case StepPhase::Brake:
+        // Give it STEP_RISE_MS to reach speed again, then slam the brake.
+        if (now - g_stepT0 >= STEP_RISE_MS && !g_brake) g_brake = true;
+        // Once g_brake is true, the stall-trip gate's `!g_brake` term is
+        // false, so — same short-circuit as the Coast phase above —
+        // g_stall.update() is never called while the brake is actually
+        // decelerating the motor. Before that point (the respin leg), the
+        // grace window opened above covers the spin-up.
+        if (g_brake && (stopped || now - g_stepT0 >= STEP_RISE_MS + STEP_STOP_MS)) {
+          setCommand(0, "calstep complete");
+          g_enabled = false;
+          g_step = StepPhase::Done;
+          Serial.println(F("> CALSTEP complete."));
+        }
+        break;
+      default: break;
     }
   }
 

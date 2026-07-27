@@ -392,6 +392,20 @@ static bool calGuardOk(const char* what) {
   return true;
 }
 
+// A running calsweep owns g_targetSv/g_forward/g_brake for its full ~158 s and
+// logs a CSV row per point from calCmdForLeg() — the "commanded" columns are
+// calsweep's own bookkeeping, not a read of the live state. Any other command
+// that touches those same variables (sweep's own g_targetSv writes, b/d/f/r)
+// races calsweep silently: nothing prints, but the CSV `cmd`/`sv_volts`/
+// `fr_state` columns diverge from what the driver actually saw, and the whole
+// run is corrupted with no indication anything went wrong. `x` (e-stop) is
+// deliberately NOT gated by this — it must always be able to cut power.
+static bool calBusy(const char* what) {
+  if (g_cal == CalState::Idle) return false;
+  Serial.printf("! calsweep running — send x to abort first (%s ignored)\n", what);
+  return true;
+}
+
 // ── Console handlers ─────────────────────────────────────────────────────
 // SerialCommands dispatches one-key commands on the FIRST character received,
 // before any terminator — so `x` cuts the motor the instant the key is pressed
@@ -409,10 +423,22 @@ static void cmdEnable (SerialCommands*) {
   g_stall.noteCommandIncrease(millis());
   Serial.println(F("> ENABLE"));
 }
-static void cmdDisable(SerialCommands*) { g_enabled = false; Serial.println(F("> DISABLE"));   }
-static void cmdFwd    (SerialCommands*) { g_forward = true;  Serial.println(F("> FORWARD"));   }
-static void cmdRev    (SerialCommands*) { g_forward = false; Serial.println(F("> REVERSE"));   }
-static void cmdBrake  (SerialCommands*) { g_brake   = true;  Serial.println(F("> BRAKE on"));  }
+static void cmdDisable(SerialCommands*) {
+  if (calBusy("d")) return;
+  g_enabled = false; Serial.println(F("> DISABLE"));
+}
+static void cmdFwd    (SerialCommands*) {
+  if (calBusy("f")) return;
+  g_forward = true;  Serial.println(F("> FORWARD"));
+}
+static void cmdRev    (SerialCommands*) {
+  if (calBusy("r")) return;
+  g_forward = false; Serial.println(F("> REVERSE"));
+}
+static void cmdBrake  (SerialCommands*) {
+  if (calBusy("b")) return;
+  g_brake   = true;  Serial.println(F("> BRAKE on"));
+}
 static void cmdNoBrake(SerialCommands*) {
   g_brake = false;
   // Same rationale as cmdEnable(): releasing the brake lets g_sv re-ramp from
@@ -453,6 +479,7 @@ static void cmdVolts(SerialCommands* s) {
 }
 
 static void cmdSweep(SerialCommands*) {
+  if (calBusy("sweep")) return;
   if (!g_enabled) { Serial.println(F("? enable first (e), then sweep")); return; }
   g_sweep = true; g_sweepDir = +1; g_sweepNext = 0;
   // Open the stall grace window ONCE here, at sweep start — do NOT move this into
@@ -472,6 +499,8 @@ static void cmdSweep(SerialCommands*) {
 }
 
 static void cmdCalSweep(SerialCommands*) {
+  // Re-invoking mid-run must refuse rather than silently restart from leg 0.
+  if (calBusy("calsweep")) return;
   if (!calGuardOk("calsweep")) return;
   g_calLeg = 0; g_calIdx = 0; g_calPrevRpm = 0.0f;
   g_enabled = true;
@@ -662,7 +691,8 @@ void loop() {
     // silent mid-leg dropout into a visible abort instead of a plausible curve
     // with a hole in it.
     if (g_enc.magnetTooWeak() || !g_enc.magnetDetected()) {
-      Serial.printf("! MAGNET FAULT at cmd %d — leg aborted, data unusable\n", cmd);
+      Serial.printf("! MAGNET FAULT at cmd %d — CALSWEEP ABORTED (entire run, all"
+                    " remaining legs skipped), data unusable\n", cmd);
       estop();
     } else if (++g_calIdx >= CAL_POINTS) {
       g_calIdx = 0;
@@ -673,8 +703,12 @@ void loop() {
         Serial.println(F("> CALSWEEP complete."));
       } else {
         g_forward = calLegIsHigh(g_calLeg);
-        setCommand(calCmdForLeg(g_calLeg, 0), "calsweep leg");
+        // reset() BEFORE setCommand(): reset() zeroes grace_until_ back to `now`,
+        // so calling it after setCommand() would erase the grace window
+        // setCommand()'s noteCommandIncrease() just opened — same ordering as
+        // cmdCalSweep()'s own setup, above.
         g_stall.reset(now);          // direction change: restart trip timing
+        setCommand(calCmdForLeg(g_calLeg, 0), "calsweep leg");
         g_calPrevRpm = 0.0f;         // sag comparison must not cross legs
         g_cal = CalState::Settle;
         g_calUntil = now + CAL_SETTLE_MS;

@@ -27,7 +27,10 @@
  *   Motor: hall cable → HU HV HW + REF+/REF- ;  phase wires → U V W.
  *   Supply: DC+/DC- = +24 V bench PSU, on its own. ESP on USB. Never bridge them.
  *
- * ── AS5600 encoder on the wheel axle (speed feedback) ────────────────────
+ * ── AS5600 encoder on the motor output shaft (speed feedback) ────────────
+ *   Upstream of the 15:1 gearbox, NOT on the wheel axle: measured RPM here is
+ *   shaft RPM, 15x wheel RPM. Anyone converting counts to distance must divide
+ *   by the gearbox ratio first.
  *   7-pin breakout.  Five wires land; two are deliberately left floating:
  *
  *     VCC ── ESP 3V3     NOT 5V: the board's I2C pull-ups sit on VCC, and a
@@ -61,14 +64,28 @@
  *   (Adafruit_MCP4725), or a non-inverting op-amp ×1.5 buffer on GPIO25.
  *
  * ── Onboard trims / indicator ────────────────────────────────────────────
- *   "Peak Power" knob (0.8–8.0 A) = driver current limit → set LOW for bring-up.
+ *   "Peak Power" knob (0.8–8.0 A) = driver current limit → position unverified
+ *   within its range; there is no PSU current limit backing it up (see Safety
+ *   net), so this trim is doing real work — do not assume it is set LOW.
  *   "RV"/"P-sv" = onboard speed trim; if SV seems ignored, turn it to max.
- *   RUN/ALM = LED only (no ALM terminal, no FG) → this test is open-loop.
+ *   RUN/ALM = LED only (no ALM terminal, no FG) → SV control is open-loop
+ *   (not servoed from RPM); only fault sensing (the stall trip below) is
+ *   closed-loop now.
  *
  * ── Safety net ───────────────────────────────────────────────────────────
- *   No ALM output → no software fault trip. Safety net = the driver's onboard
- *   "Peak Power" current trim (set LOW) + the bench PSU CURRENT LIMIT (set low)
- *   + the `x` e-stop. Watch the RUN/ALM LED for faults.
+ *   The software stall trip (StallDetector, armed in loop()) is now the
+ *   primary automatic protection: commanded at/above break-away with |RPM| < 5
+ *   for 250 ms trips it, collapsing SV and asserting brake. It reacts in
+ *   ~250 ms and, unlike a fixed current limit, doesn't false-trip on inrush.
+ *   Hardware backstops, worst case first: the driver's "Peak Power" trim
+ *   (≤8 A, position unverified) → a 10 A fuse. The bench PSU has NO current
+ *   limit of its own — an earlier version of this note claimed otherwise;
+ *   that was a documentation error, corrected 2026-07-27. The fuse cannot
+ *   protect the motor: an 8 A stall sits below the fuse rating indefinitely
+ *   while ~192 W cooks stationary windings, so the software trip is doing
+ *   the job the fuse can't. `x` is the manual stop.
+ *   Watch the RUN/ALM LED for faults the software can't see (driver-side
+ *   shorts, MOSFETs failed closed).
  *
  * ── Control-line electrical model ────────────────────────────────────────
  *   A COM terminal means EN/F-R/BRK activate by being pulled to COM, so they
@@ -111,7 +128,7 @@ constexpr int PIN_LED = 2;    // onboard LED heartbeat
 constexpr int PIN_SDA = 21;   // AS5600 — I2C0 default on this chip
 constexpr int PIN_SCL = 22;
 
-// ── AS5600 wheel encoder ─────────────────────────────────────────────────
+// ── AS5600 motor-shaft encoder ───────────────────────────────────────────
 // 12-bit absolute-within-one-turn: 4096 counts per revolution, no index pulse
 // and no hardware turn counter. Multi-turn distance therefore only exists if we
 // keep calling getCumulativePosition() often enough to see each wrap — see the
@@ -464,7 +481,8 @@ void setup() {
 
   Serial.println(F("\nBLD-120A bench test ready (boots DISABLED, command 0)."));
   Serial.printf("SV mode: %s on GPIO%d\n", SV_USE_DAC ? "DAC1 analog" : "LEDC PWM", PIN_SV);
-  Serial.println(F("Set your PSU current limit LOW before enabling."));
+  Serial.println(F("No PSU current limit on this bench -- protection is the driver's"));
+  Serial.println(F("Peak Power trim + the software stall trip. Watch for the trip message."));
   printHelp();
 }
 
@@ -477,10 +495,19 @@ void loop() {
   // Auto-sweep walks the target; the slew limiter below still smooths it.
   if (g_sweep && now >= g_sweepNext) {
     g_sweepNext = now + 100;
+    const int before = g_targetSv;
     g_targetSv += g_sweepDir * 16;
     if (g_targetSv >= CMD_MAX) { g_targetSv = CMD_MAX; g_sweepDir = -1; }
     else if (g_targetSv <= 0)  { g_targetSv = 0; g_sweep = false;
                                  Serial.println(F("> sweep complete")); }
+    // Sweep mutates g_targetSv directly instead of going through setCommand()
+    // (which would print a line every 100 ms step), so it must open the grace
+    // window itself on rising steps. Without this, a sweep ramp past
+    // break-away runs with zero grace protection and can false-trip the stall
+    // detector, aborting the very routine meant to characterize the motor.
+    // Only on a rise: the falling leg is a command DEcrease and must not mask
+    // a genuine stall on the way down.
+    if (g_targetSv > before) g_stall.noteCommandIncrease(now);
   }
 
   if (now - tTick >= TICK_MS) {

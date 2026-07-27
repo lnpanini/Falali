@@ -208,6 +208,34 @@ uint32_t g_fastTime  = 0;
 int g_breakAwayCmd = 40;
 tb::StallDetector g_stall;
 
+// ── Calibration: transfer curve ──────────────────────────────────────────
+// Four legs, each 33 points at cmd = min(i*8, 255): FR=HIGH up, HIGH down,
+// LOW up, LOW down. The down-legs are what yield stiction hysteresis, and the
+// two FR states independently verify that the encoder sign follows F/R.
+constexpr uint32_t CAL_SETTLE_MS  = 800;
+constexpr uint32_t CAL_MEASURE_MS = 400;
+constexpr int      CAL_POINTS     = 33;
+constexpr float    GEAR_RATIO     = 15.0f;
+
+enum class CalState : uint8_t { Idle, Settle, Measure, Done };
+
+CalState g_cal      = CalState::Idle;
+int      g_calLeg   = 0;      // 0..3
+int      g_calIdx   = 0;      // 0..32 within the leg
+uint32_t g_calUntil = 0;
+int32_t  g_calPos0  = 0;
+uint32_t g_calT0    = 0;
+float    g_calPrevRpm = 0.0f;   // previous point in this leg, for sag detection
+
+static int calCmdForIndex(int i) { const int c = i * 8; return c > 255 ? 255 : c; }
+static bool calLegIsHigh(int leg) { return leg < 2; }
+static bool calLegIsUp(int leg)   { return (leg % 2) == 0; }
+
+// Ascending legs walk 0..32; descending legs walk 32..0.
+static int calCmdForLeg(int leg, int idx) {
+  return calCmdForIndex(calLegIsUp(leg) ? idx : (CAL_POINTS - 1 - idx));
+}
+
 // ── Encoder ──────────────────────────────────────────────────────────────
 // Walk the bus and report every responder. This is the first thing to run when
 // the encoder misbehaves: 0x36 present = wiring + pull-ups are good, and any
@@ -343,6 +371,7 @@ static void estop() {
   g_targetSv = 0;
   g_sv       = 0;          // no ramp-down on an e-stop: collapse SV immediately
   g_sweep    = false;
+  g_cal      = CalState::Idle;
   svWrite(0);
   applyOutputs();
   Serial.println(F("*** E-STOP: disabled + braked + command 0 ***"));
@@ -442,6 +471,19 @@ static void cmdSweep(SerialCommands*) {
   Serial.println(F("> SWEEP 0 -> max -> 0 (send x to abort)"));
 }
 
+static void cmdCalSweep(SerialCommands*) {
+  if (!calGuardOk("calsweep")) return;
+  g_calLeg = 0; g_calIdx = 0; g_calPrevRpm = 0.0f;
+  g_enabled = true;
+  g_forward = true;                    // leg 0 is FR=HIGH
+  g_stall.reset(millis());
+  g_cal = CalState::Settle;
+  g_calUntil = millis() + CAL_SETTLE_MS;
+  setCommand(calCmdForLeg(0, 0), "calsweep");
+  Serial.println(F("> CALSWEEP: 4 legs x 33 points, ~158s. Send x to abort."));
+  Serial.println(F("CSV,sweep,fr_state,leg_dir,cmd,sv_volts,rpm_motor,rpm_wheel,counts_delta,agc,mag_status"));
+}
+
 static void cmdUnknown(SerialCommands* s, const char* cmd) {
   s->GetSerial()->printf("? unknown '%s' — send ? for help\n", cmd);
 }
@@ -466,6 +508,7 @@ static SerialCommand c_magnet ("m", cmdMagnet,  true);
 static SerialCommand c_set    ("s",     cmdSet);
 static SerialCommand c_volts  ("v",     cmdVolts);
 static SerialCommand c_sweep  ("sweep", cmdSweep);
+static SerialCommand c_calsweep("calsweep", cmdCalSweep);
 static SerialCommand c_scan   ("scan",  cmdScan);
 
 // ── Setup / loop ─────────────────────────────────────────────────────────
@@ -507,6 +550,7 @@ void setup() {
   g_cli.AddCommand(&c_set);     g_cli.AddCommand(&c_volts);
   g_cli.AddCommand(&c_sweep);   g_cli.AddCommand(&c_scan);
   g_cli.AddCommand(&c_zero);    g_cli.AddCommand(&c_magnet);
+  g_cli.AddCommand(&c_calsweep);
 
   Serial.println(F("\nBLD-120A bench test ready (boots DISABLED, command 0)."));
   Serial.printf("SV mode: %s on GPIO%d\n", SV_USE_DAC ? "DAC1 analog" : "LEDC PWM", PIN_SV);
@@ -574,6 +618,71 @@ void loop() {
                     g_stall.trippedAtCmd());
       Serial.println(F("*** SV cut, brake asserted. Check for a jam before retrying. ***"));
       estop();
+    }
+  }
+
+  // Non-blocking by construction: every dwell is a millis() comparison, never a
+  // delay(). A blocking sweep would stop g_cli.ReadSerial() from running and
+  // leave `x` dead for the full 158 s.
+  if (g_cal == CalState::Settle && now >= g_calUntil) {
+    g_calPos0 = g_encPos;
+    g_calT0   = now;
+    g_cal     = CalState::Measure;
+    g_calUntil = now + CAL_MEASURE_MS;
+  } else if (g_cal == CalState::Measure && now >= g_calUntil) {
+    const uint32_t dt     = now - g_calT0;
+    const int32_t  dcount = g_encPos - g_calPos0;
+    const float    rpm    = dt ? dcount * 60000.0f / ((float)ENC_CPR * dt) : 0.0f;
+    const int      cmd    = calCmdForLeg(g_calLeg, g_calIdx);
+    const uint8_t  status = g_enc.readStatus();
+
+    Serial.printf("CSV,sweep,%s,%s,%d,%.3f,%.1f,%.1f,%ld,%u,0x%02X\n",
+                  calLegIsHigh(g_calLeg) ? "HIGH" : "LOW",
+                  calLegIsUp(g_calLeg) ? "up" : "down",
+                  cmd, ESP_VMAX * cmd / (float)CMD_MAX,
+                  rpm, rpm / GEAR_RATIO, (long)dcount,
+                  g_enc.readAGC(), status);
+
+    // Supply-sag / driver current-limiting: on an ASCENDING leg, more command
+    // must not produce less speed. When it does, the supply is sagging or the
+    // driver is limiting internally — and the resulting bend looks exactly like
+    // a genuine saturation knee in the fitted curve. Flag it at the point it
+    // happens so the analysis is not silently reading a power problem as motor
+    // physics. Threshold is 2% to clear ordinary point-to-point noise.
+    if (calLegIsUp(g_calLeg) && g_calIdx > 0 &&
+        fabsf(g_calPrevRpm) > 50.0f &&
+        fabsf(rpm) < fabsf(g_calPrevRpm) * 0.98f) {
+      Serial.printf("! SAG at cmd %d: %.1f -> %.1f RPM while command ROSE"
+                    " (supply sagging or driver limiting — not a real knee)\n",
+                    cmd, g_calPrevRpm, rpm);
+    }
+    g_calPrevRpm = rpm;
+
+    // A weak magnet fails intermittently. Logging status per point turns a
+    // silent mid-leg dropout into a visible abort instead of a plausible curve
+    // with a hole in it.
+    if (g_enc.magnetTooWeak() || !g_enc.magnetDetected()) {
+      Serial.printf("! MAGNET FAULT at cmd %d — leg aborted, data unusable\n", cmd);
+      estop();
+    } else if (++g_calIdx >= CAL_POINTS) {
+      g_calIdx = 0;
+      if (++g_calLeg >= 4) {
+        g_cal = CalState::Done;
+        setCommand(0, "calsweep complete");
+        g_enabled = false;
+        Serial.println(F("> CALSWEEP complete."));
+      } else {
+        g_forward = calLegIsHigh(g_calLeg);
+        setCommand(calCmdForLeg(g_calLeg, 0), "calsweep leg");
+        g_stall.reset(now);          // direction change: restart trip timing
+        g_calPrevRpm = 0.0f;         // sag comparison must not cross legs
+        g_cal = CalState::Settle;
+        g_calUntil = now + CAL_SETTLE_MS;
+      }
+    } else {
+      setCommand(calCmdForLeg(g_calLeg, g_calIdx), "calsweep");
+      g_cal = CalState::Settle;
+      g_calUntil = now + CAL_SETTLE_MS;
     }
   }
 

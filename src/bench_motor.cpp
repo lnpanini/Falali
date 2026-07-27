@@ -422,7 +422,12 @@ static bool calGuardOk(const char* what) {
 // `x` (e-stop) is deliberately NOT gated by this — it must always be able to
 // cut power.
 static bool calBusy(const char* what) {
-  const bool sweepBusy = (g_cal != CalState::Idle);
+  // Done is a finished, latched state for both routines (cleared only by x /
+  // estop()) — it must not count as busy, or a completed calsweep spuriously
+  // refuses calstep (and vice versa) with "send x to abort" when nothing is
+  // actually running. Only Settle/Measure (sweep) or Rise/Settle/Coast/Brake
+  // (step) are genuinely mid-run and must still block the other routine.
+  const bool sweepBusy = (g_cal != CalState::Idle && g_cal != CalState::Done);
   const bool stepBusy  = (g_step != StepPhase::Idle && g_step != StepPhase::Done);
   if (!sweepBusy && !stepBusy) return false;
   Serial.printf("! %s running — send x to abort first (%s ignored)\n",
@@ -566,7 +571,7 @@ static void cmdCalStep(SerialCommands* s) {
   // rise is always covered regardless of what g_targetSv held before.
   g_stall.noteCommandIncrease(millis());
   Serial.println(F("> CALSTEP: rise -> coast -> brake. Send x to abort."));
-  Serial.println(F("CSV,step,phase,t_ms,cmd,rpm_motor"));
+  Serial.println(F("CSV,step,phase,t_ms,cmd,rpm_motor,counts"));
 }
 
 static void cmdUnknown(SerialCommands* s, const char* cmd) {
@@ -787,9 +792,16 @@ void loop() {
     const char* phase = (g_step == StepPhase::Rise)  ? "rise"
                       : (g_step == StepPhase::Coast) ? "coast"
                       : (g_step == StepPhase::Brake) ? "brake" : "settle";
+    // rpm_motor is g_rpmFast, a 100 ms-smoothed value recomputed at RPM_FAST_MS
+    // cadence (needed as-is by the stall trip, see its declaration) — at this
+    // 4 ms row rate it is a zero-order-hold staircase, fine for a quick eyeball
+    // but aliased, NOT real dynamics. counts is g_encPos, the raw cumulative
+    // encoder position updated every ENC_TICK_MS (4 ms): full-resolution, safe
+    // to differentiate on the host for time constants.
     if (g_step != StepPhase::Settle)
-      Serial.printf("CSV,step,%s,%lu,%d,%.1f\n",
-                    phase, (unsigned long)(now - g_stepT0), g_targetSv, g_rpmFast);
+      Serial.printf("CSV,step,%s,%lu,%d,%.1f,%ld\n",
+                    phase, (unsigned long)(now - g_stepT0), g_targetSv, g_rpmFast,
+                    (long)g_encPos);
 
     const bool stopped = fabsf(g_rpmFast) < STEP_STOP_RPM;
     switch (g_step) {

@@ -251,6 +251,22 @@ int       g_stepCmd  = 0;
 uint32_t  g_stepT0   = 0;
 uint32_t  g_stepNext = 0;
 
+// ── Calibration: gearbox verification ────────────────────────────────────
+// Deliberately NOT "stop at exactly 61440 counts" (15 * 4096 = one predicted
+// wheel revolution): the shaft coasts after power is cut, so the resting
+// position would not equal the target and the coast would be misread as
+// gearbox error. Instead run freely, keep counting THROUGH the coast (the
+// encoder does this naturally), and divide by the revolutions actually
+// observed on the wheel.
+constexpr float GEAR_TARGET_REVS = 10.0f;
+
+enum class GearPhase : uint8_t { Idle, Running, Stopping, AwaitCount };
+
+GearPhase g_gear      = GearPhase::Idle;
+uint32_t  g_gearUntil = 0;
+int32_t   g_gearPos0  = 0;
+int32_t   g_gearCounts = 0;
+
 // ── Encoder ──────────────────────────────────────────────────────────────
 // Walk the bus and report every responder. This is the first thing to run when
 // the encoder misbehaves: 0x36 present = wiring + pull-ups are good, and any
@@ -369,6 +385,9 @@ static void printHelp() {
     "   s <0-255>  set command      v <volts>  set by SV volts\n"
     "   sweep      auto-ramp 0 -> max -> 0 (any key cancels)\n"
     "   scan       re-run the I2C bus scan\n"
+    "   calsweep   transfer curve, 4 legs, ~158s\n"
+    "   calstep <cmd>  rise/coast/brake response at 250Hz\n"
+    "   calgear [cmd]  gearbox check (then: wheelrevs <n>)\n"
     "-------------------------------------------------------------"));
 }
 
@@ -388,6 +407,7 @@ static void estop() {
   g_sweep    = false;
   g_cal      = CalState::Idle;
   g_step     = StepPhase::Idle;
+  g_gear     = GearPhase::Idle;
   svWrite(0);
   applyOutputs();
   Serial.println(F("*** E-STOP: disabled + braked + command 0 ***"));
@@ -408,30 +428,37 @@ static bool calGuardOk(const char* what) {
   return true;
 }
 
-// A running calsweep or calstep owns g_targetSv/g_forward/g_brake for its
-// full run and logs a CSV row per point/sample — the "commanded" columns are
-// the routine's own bookkeeping, not a read of the live state. Any other
-// command that touches those same variables (sweep's own g_targetSv writes,
-// b/d/f/r, or the other calibration routine starting) races the run silently:
-// nothing prints, but the CSV columns diverge from what the driver actually
-// saw, and the whole run is corrupted with no indication anything went wrong.
-// Both routines share this one guard so neither can clobber the other — a
-// gate that only stopped calsweep-vs-others but let calstep start mid-sweep
-// (or vice versa) would be worse than no gate at all, since it reads as
-// protection while leaving that exact corruption path open.
+// A running calsweep, calstep, or calgear owns g_targetSv/g_forward/g_brake
+// for its full run and logs a CSV row per point/sample — the "commanded"
+// columns are the routine's own bookkeeping, not a read of the live state.
+// Any other command that touches those same variables (sweep's own
+// g_targetSv writes, b/d/f/r, or one of the other calibration routines
+// starting) races the run silently: nothing prints, but the CSV columns
+// diverge from what the driver actually saw, and the whole run is corrupted
+// with no indication anything went wrong. All three routines share this one
+// guard so none can clobber another — a gate that stopped calsweep-vs-calstep
+// but let calgear start mid-sweep (or a sweep start mid-gear-run) would be
+// worse than no gate at all, since it reads as protection while leaving that
+// exact corruption path open.
 // `x` (e-stop) is deliberately NOT gated by this — it must always be able to
 // cut power.
 static bool calBusy(const char* what) {
-  // Done is a finished, latched state for both routines (cleared only by x /
-  // estop()) — it must not count as busy, or a completed calsweep spuriously
-  // refuses calstep (and vice versa) with "send x to abort" when nothing is
-  // actually running. Only Settle/Measure (sweep) or Rise/Settle/Coast/Brake
-  // (step) are genuinely mid-run and must still block the other routine.
+  // Done (calsweep/calstep) and AwaitCount (calgear) are finished, latched
+  // resting states — cleared only by x/estop() or, for calgear, by
+  // `wheelrevs` running to completion — and must not count as busy, or a
+  // completed run spuriously refuses one of the other two routines with
+  // "send x to abort" when nothing is actually running. AwaitCount is
+  // calgear's equivalent of Done: the motor is already parked (disabled,
+  // brake released), just waiting on the operator to type `wheelrevs <n>`.
+  // Only Settle/Measure (sweep), Rise/Settle/Coast/Brake (step), or
+  // Running/Stopping (gear) are genuinely mid-run and must still block the
+  // other routines.
   const bool sweepBusy = (g_cal != CalState::Idle && g_cal != CalState::Done);
   const bool stepBusy  = (g_step != StepPhase::Idle && g_step != StepPhase::Done);
-  if (!sweepBusy && !stepBusy) return false;
-  Serial.printf("! %s running — send x to abort first (%s ignored)\n",
-                sweepBusy ? "calsweep" : "calstep", what);
+  const bool gearBusy  = (g_gear == GearPhase::Running || g_gear == GearPhase::Stopping);
+  if (!sweepBusy && !stepBusy && !gearBusy) return false;
+  const char* owner = sweepBusy ? "calsweep" : stepBusy ? "calstep" : "calgear";
+  Serial.printf("! %s running — send x to abort first (%s ignored)\n", owner, what);
   return true;
 }
 
@@ -574,6 +601,79 @@ static void cmdCalStep(SerialCommands* s) {
   Serial.println(F("CSV,step,phase,t_ms,cmd,rpm_motor,counts"));
 }
 
+static void cmdCalGear(SerialCommands* s) {
+  // Same bidirectional guard as calsweep/calstep — see calBusy()'s comment.
+  if (calBusy("calgear")) return;
+  if (!calGuardOk("calgear")) return;
+  const char* arg = s->Next();
+  const int cmd = arg ? constrain(atoi(arg), 0, CMD_MAX) : 60;
+  if (cmd < g_breakAwayCmd) {
+    Serial.printf("! cmd %d is below break-away (%d) — it will not turn\n",
+                  cmd, g_breakAwayCmd);
+    return;
+  }
+  // Duration for ~10 predicted wheel revs, from the measured 1012 RPM/V curve.
+  const float sv         = ESP_VMAX * cmd / (float)CMD_MAX;
+  const float motor_rpm  = 1012.0f * sv;
+  const float wheel_rps  = motor_rpm / GEAR_RATIO / 60.0f;
+  const uint32_t run_ms  = (wheel_rps > 0.01f)
+                         ? (uint32_t)(GEAR_TARGET_REVS / wheel_rps * 1000.0f) : 12000;
+
+  g_enabled = true; g_forward = true; g_brake = false;
+  g_enc.resetCumulativePosition(0);
+  g_encPos = g_gearPos0 = 0;
+  g_stall.reset(millis());
+  setCommand(cmd, "calgear");
+  // Explicit, unconditional grace — do NOT rely on setCommand()'s own
+  // noteCommandIncrease() call here. That call only fires when g_targetSv
+  // actually INCREASES; if a prior manual `s`/`v` (or a previous calgear run
+  // with the same cmd) already left g_targetSv at cmd, setCommand() sees no
+  // rise and opens no window, and reset() just above already zeroed
+  // grace_until_ to now. The motor is nonetheless starting from a standstill
+  // here (g_enabled was just set true, so g_sv has been sitting at/ramping to
+  // 0) — same false-trip pattern cmdEnable() and calstep's respin leg guard
+  // against. Call it directly so the start is always covered regardless of
+  // what g_targetSv held before.
+  g_stall.noteCommandIncrease(millis());
+  g_gear = GearPhase::Running;
+  g_gearUntil = millis() + run_ms;
+  Serial.printf("> CALGEAR: cmd %d for %lums (~%.0f predicted wheel revs).\n",
+                cmd, (unsigned long)run_ms, GEAR_TARGET_REVS);
+  Serial.println(F("  MARK THE WHEEL and count its revolutions. Send x to abort."));
+}
+
+// Named `wheelrevs`, not the shorter `revs` the design doc uses: SerialCommands
+// dispatches one-key hotkeys by matching ONLY the first typed character
+// against every one_key command's first character (CheckOneKeyCmd() in
+// SerialCommands.cpp, triggered at buffer_pos_==1) — before any lookahead at
+// what follows. `r` (reverse) and `e` (enable) are both registered one-key
+// commands, and "revs" begins with exactly that pair: typing "revs 10" would
+// fire REVERSE on the 'r', then ENABLE on the 'e' (unexpectedly enabling the
+// live driver), leaving "vs 10" to fail as an unrecognized command — the
+// intended handler would never run. `wheelrevs` starts with 'w', which no
+// one-key command claims, so the whole token reaches the normal multi-char
+// dispatch untouched. This also reads better next to the "motor counts (...
+// motor revs)" line calgear prints, since it disambiguates which shaft the
+// revolutions were counted on.
+static void cmdWheelRevs(SerialCommands* s) {
+  if (g_gear != GearPhase::AwaitCount) {
+    Serial.println(F("? `wheelrevs` only applies right after a calgear run"));
+    return;
+  }
+  const char* arg = s->Next();
+  if (!arg) { Serial.println(F("? usage: wheelrevs <wheel revolutions observed>")); return; }
+  const float revs = atof(arg);
+  const float measured = tb::gearRatio(g_gearCounts, revs, ENC_CPR);
+  if (measured <= 0.0f) { Serial.println(F("? revolutions must be > 0")); return; }
+  const float err = 100.0f * (measured - GEAR_RATIO) / GEAR_RATIO;
+  Serial.println(F("CSV,gear,motor_counts,wheel_revs_reported,measured_ratio,label_ratio,error_pct"));
+  Serial.printf("CSV,gear,%ld,%.2f,%.4f,%.2f,%+.2f\n",
+                (long)g_gearCounts, revs, measured, GEAR_RATIO, err);
+  if (fabsf(err) > 5.0f)
+    Serial.println(F("! >5% from the 15:1 label — suspect a mislabelled or wrong-fitted box"));
+  g_gear = GearPhase::Idle;
+}
+
 static void cmdUnknown(SerialCommands* s, const char* cmd) {
   s->GetSerial()->printf("? unknown '%s' — send ? for help\n", cmd);
 }
@@ -600,6 +700,8 @@ static SerialCommand c_volts  ("v",     cmdVolts);
 static SerialCommand c_sweep  ("sweep", cmdSweep);
 static SerialCommand c_calsweep("calsweep", cmdCalSweep);
 static SerialCommand c_calstep("calstep", cmdCalStep);
+static SerialCommand c_calgear("calgear", cmdCalGear);
+static SerialCommand c_wheelrevs("wheelrevs", cmdWheelRevs);
 static SerialCommand c_scan   ("scan",  cmdScan);
 
 // ── Setup / loop ─────────────────────────────────────────────────────────
@@ -643,6 +745,8 @@ void setup() {
   g_cli.AddCommand(&c_zero);    g_cli.AddCommand(&c_magnet);
   g_cli.AddCommand(&c_calsweep);
   g_cli.AddCommand(&c_calstep);
+  g_cli.AddCommand(&c_calgear);
+  g_cli.AddCommand(&c_wheelrevs);
 
   Serial.println(F("\nBLD-120A bench test ready (boots DISABLED, command 0)."));
   Serial.printf("SV mode: %s on GPIO%d\n", SV_USE_DAC ? "DAC1 analog" : "LEDC PWM", PIN_SV);
@@ -861,6 +965,30 @@ void loop() {
         break;
       default: break;
     }
+  }
+
+  // calgear: Running (fixed duration, free-spinning) -> Stopping (power cut,
+  // brake on, let it coast fully to rest) -> AwaitCount (parked, waiting on
+  // the operator's `wheelrevs <n>`). See the GEAR_TARGET_REVS comment above,
+  // near the other calibration state, for why this deliberately does not try
+  // to stop at a predicted count.
+  if (g_gear == GearPhase::Running && now >= g_gearUntil) {
+    setCommand(0, "calgear stopping");
+    g_enabled = false; g_brake = true;
+    // Disabling here short-circuits the stall-trip gate below
+    // (`g_enabled && !g_brake && ...`) for the whole coast-to-brake window,
+    // same mechanism as calstep's Coast/Brake phases — the trip is never
+    // evaluated while the motor is deliberately being stopped.
+    g_gear = GearPhase::Stopping;
+    g_gearUntil = now + 3000;          // let it come fully to rest
+  } else if (g_gear == GearPhase::Stopping && now >= g_gearUntil) {
+    // Counts accumulated through the coast are INCLUDED — that is the point.
+    g_gearCounts = g_encPos - g_gearPos0;
+    g_brake = false;
+    g_gear = GearPhase::AwaitCount;
+    Serial.printf("> CALGEAR done: %ld motor counts (%.2f motor revs).\n",
+                  (long)g_gearCounts, (float)g_gearCounts / ENC_CPR);
+    Serial.println(F("  Now send:  wheelrevs <wheel revolutions you counted>"));
   }
 
   if (now - tStatus >= STATUS_MS) {

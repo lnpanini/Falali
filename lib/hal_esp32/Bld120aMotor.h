@@ -1,24 +1,24 @@
 // IMotor adapter for one wheel behind a BLD120A BLDC driver.
 //
-// SV = speed (PWM, externally RC-filtered to analog — see pins::kSvPwmFreqHz);
-// F/R = direction. EN/BRK are GANGED across all four wheels, so pass the same
-// shared pins to every motor — the redundant writes to a shared line are harmless.
+// SV = speed (native PWM — see pins::kSvPwmFreqHz); F/R = direction.
 //
-// CONTROL LINES ARE OPEN-DRAIN BY DEFAULT
-// ---------------------------------------
-// Asserting a line pulls it to COM; releasing it goes Hi-Z and lets the driver's
-// own internal pull-up decide the level. This matters because it is the only
-// configuration that is safe when the ESP is NOT in control: during the ~200 ms
-// between power-on and setup(), during a reset, during a crash, and while the
-// board is unplugged, every pin is Hi-Z and every driver therefore sees
-// EN released = disabled. A push-pull output cannot offer that guarantee.
+// EN and BRK are PER-WHEEL on the fabricated board (see pins.h), so each motor
+// gets its own four pins. An earlier version of this comment said they were
+// ganged; that was the pre-PCB design intent, not the board that exists.
 //
-// It also matches the bench rig, which is the configuration actually validated on
-// hardware (src/bench_motor.cpp, PUSH_PULL_CTRL 0). Set kPushPullControl = true
-// only if the driver inputs turn out to be plain 3.3 V logic with no pull-up.
+// CONTROL LINES GO THROUGH TRANSISTOR ADAPTERS, SO THEY ARE PUSH-PULL
+// ------------------------------------------------------------------
+// The GPIO drives a transistor gate/base, never the driver's own 5 V node. That
+// makes push-pull correct — open-drain could never turn the transistor on, since
+// the base/gate pulldown would win and every line would sit released forever.
 //
-// Polarities carry the CONFIRMED-2026-07-15 bench values: EN asserted LOW,
-// BRK asserted LOW, F/R HIGH = forward.
+// Safety when the ESP is NOT in control (boot, reset, crash, unplugged): the
+// GPIO is Hi-Z, the pulldown holds the transistor off, the driver input floats
+// to its own idle level, and EN reads as RELEASED = disabled. The adapter
+// preserves the fail-safe that open-drain used to provide.
+//
+// Polarities are whatever makes the hardware behave, and the hardware has been
+// watched: all four wheels enable, brake and reverse correctly as written.
 #pragma once
 
 #include <Arduino.h>
@@ -46,21 +46,13 @@ namespace tb {
 // Getting this wrong swaps "enable" and "disable" on a live drivetrain, so it is
 // a single switch rather than four scattered polarity constants.
 //
-// NOW TRUE: the adapters are fitted and the drivetrain runs through them.
-//
-// UNRESOLVED CONTRADICTION in the bench data below — worth settling before the
-// robot build. The unpowered diode test read OL both ways, implying no opto; a
-// later powered test read 2.20 V / 1.886 V across EN->COM, which conducts. Both
-// cannot be right. It does not change this constant (the adapters are in and
-// work either way) but it does change whether they were ever strictly required.
-//
-// Bench evidence so far (2026-08-05): diode test EN->COM and SV->COM read OL in
-// BOTH directions with the driver unpowered, so there are NO optocouplers on the
-// driver inputs — the opto symbols in the manual's control diagram belong to the
-// external PLC it expects you to build. Loading EN with 1.469 kOhm while powered
-// gave 0.642 V, i.e. an internal pull-up around 10 kOhm and only a few hundred
-// microamps of drive current. A 10 kOhm resistor reads OL in diode mode, which is
-// consistent. The rail that pull-up returns to is the open question.
+// EVIDENCE: behavioural, which is the strongest kind available here. All four
+// motors enable, run, brake and reverse correctly through the adapters with this
+// TRUE. Various multimeter readings were taken during bring-up and contradicted
+// each other; they have been discarded rather than reconciled, because they were
+// not needed to reach a working drivetrain and would only mislead a reader into
+// thinking the driver's input model is understood. It is not, and does not need
+// to be until someone redesigns the adapter board.
 constexpr bool kControlViaMosfet = true;
 
 // With a MOSFET the GPIO drives a gate, never the 5 V node -> push-pull is correct

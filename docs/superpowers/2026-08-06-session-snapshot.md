@@ -30,19 +30,32 @@ continuous proof someone is in charge, and brakes when it stops arriving.
 
 ---
 
-## 2. What was measured (and what it replaced)
+## 2. Evidence quality — read this before trusting any number below
+
+The bench electrical measurements in this session were **not taken under
+controlled conditions and partly contradict each other**. Where a claim rests on
+one of them, it is marked UNVERIFIED. Do not build on those.
+
+What is solid is behaviour: **all four BLD-120A drivers run correctly from the
+ESP32-S3 through the transistor adapters, with directions calibrated.** That was
+observed repeatedly, and everything downstream can rely on it.
+
+Also solid: anything read out of the KiCad netlist or the driver manuals, since
+those are documents rather than measurements.
+
+## 2b. What was measured (and what it replaced)
 
 | Fact | Method | Replaced |
 |---|---|---|
-| **SV is a high-impedance voltage input** | diode test read open both ways | "pot-wiper drags the source down" |
+| ~~SV is a high-impedance voltage input~~ **UNVERIFIED** | diode test — contradicted by a later powered reading | — |
 | **The 2.59 V ceiling was the ESP32's DAC**, not the driver | provenance check — 2026-07-15, WROOM-32D, `dacWrite` | a planned MCP4728/op-amp/level-shifter purchase |
-| **Break-away ≈ 5% duty** | encoder sweep, no load | an estimated 24%, which implied a gearing redesign |
-| **EN/BRK/F-R are optocouplers idling ~5 V**, pull-up ≈10 kΩ, ≈440 µA | powered measurement + manual | assumption of 2.2 kΩ |
+| Break-away ≈ 5% duty — **INDICATIVE** | observed by eye, no load, single run | an estimated 24%, which implied a gearing redesign |
+| ~~EN/BRK/F-R are optocouplers idling ~5 V~~ **UNVERIFIED** | powered measurement, method not controlled | — |
 | **Driver takes PWM natively** | manual, Speed Command mode C | DAC / op-amp / RC filter |
 | **PWM range is 1–3 kHz** (SYS manual) vs 1–10 kHz (other manual) | two manuals disagree | 20 kHz, then 5 kHz — both out of spec |
 | **P-sv is the overload limit, not a speed trim** | manual | bench notes calling it a speed trim |
 | **There is no ALM terminal** | manual + terminal count | a `motor_alarm` input that always read "no fault" |
-| **Direction: FL/RL inverted, FR/RR not** | `m` identification routine | uncalibrated |
+| **Direction: FL/RL inverted, FR/RR not** — SOLID | `m` routine, confirmed by watching all four wheels | uncalibrated |
 
 ### The one that mattered most
 
@@ -70,6 +83,20 @@ Recorded because each was believed and acted on before being disproved.
    opto-off needs ≥32 kΩ. No overlap.
 5. **10 kΩ was the wrong SV series resistor**; 1.5 kΩ, because it divides against
    the driver's unmeasured input impedance.
+
+### 6. The bench electrical measurements were discarded
+
+Not corrected — **discarded**. Several multimeter readings taken during bring-up
+contradicted each other (most starkly: EN→COM reading open in both directions
+unpowered, then conducting when powered), and the measurement conditions were
+not controlled well enough to say which was wrong. Rather than reconcile them,
+they were removed from `pins.h` and `Bld120aMotor.h`.
+
+Nothing was lost. Every decision they were supposed to support — fit the
+transistor adapters, set `kControlViaMosfet = true`, use 2 kHz PWM — is
+independently justified by the manuals and confirmed by four working drivers.
+The general rule this leaves behind: **a working drivetrain outranks a
+measurement you are not sure you took correctly.**
 
 ### The bug that cost an evening
 
@@ -125,14 +152,15 @@ follows `MecanumDrive.cpp`; `bench_bld_drive.h` follows `bench_mix.h`.
       is wrong; actual is several times higher, so `DeadReckonOdometry`
       under-estimates every distance.
 - [ ] **Which fix made the motor run** — brake latched, P-sv maxed, or 5→2 kHz?
-      Bisect before building three more adapters.
+      Lower priority now that all four adapters are built and working, but still
+      worth knowing before the next board revision.
 - [ ] **ACC/DEC pot direction** — 0.3 s or 15 s at fully-CCW is still unknown, and
       a slow ramp corrupts sweeps (the sweep now detects this and marks rows
       `NOT-SETTLED`).
-- [ ] **`main.cpp` still passes one shared EN/BRK pair** to all four motors; the
-      board has eight separate lines.
-- [ ] **Verify FR and RL SV/BRK wiring** — two rows of the breadboard pin table
-      were transcribed in a different order from the other two.
+- [x] ~~**`main.cpp` passes one shared EN/BRK pair**~~ — fixed; each motor now gets
+      its own four pins from the per-wheel arrays in `pins.h`.
+- [x] ~~**Verify FR and RL SV/BRK wiring**~~ — resolved by behaviour: all four
+      drivers enable, run, brake and reverse correctly.
 - [ ] **Mecanum odometry calibration** — rim speed is not ground speed. Needs
       empirical scale factors, separately for forward, strafe and rotation.
 - [ ] `bench_s3_motor.cpp` still has its own mux code; migrate to

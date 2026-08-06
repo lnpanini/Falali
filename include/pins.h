@@ -31,12 +31,15 @@ constexpr uint8_t kNoPin = 0xFF;
 // design assumed. That is strictly better (independent shutdown per wheel) but
 // means main.cpp must pass each motor its own pins, not one shared pair.
 //
-// *** EN / BRK / F-R ARE OPTO-ISOLATED INPUTS THAT IDLE NEAR 5 V. ***
-// The manual's control diagram shows each as an optocoupler LED fed from the
-// driver's internal rail (measured pull-up ≈10 kΩ, ≈440 µA when pulled to COM).
-// The ESP32-S3 is NOT 5 V tolerant, so these must go through the adapter's
-// switching transistor — never straight to a GPIO. The transistor INVERTS the
-// logic; see kControlViaMosfet in Bld120aMotor.h.
+// *** EN / BRK / F-R IDLE ABOVE 3.3 V — GO THROUGH THE TRANSISTOR ADAPTERS. ***
+// The manual draws each control input as an optocoupler LED fed from the driver's
+// own rail. Bench attempts to characterise that rail gave contradictory readings
+// and have been discarded, so the exact idle voltage and pull-up are UNKNOWN —
+// but it is above 3.3 V and the ESP32-S3 is not 5 V tolerant, which is all the
+// justification the adapters need.
+//
+// Never wire these straight to a GPIO. The transistor INVERTS the logic; see
+// kControlViaMosfet in Bld120aMotor.h.
 constexpr uint8_t kWheelSV[4]  = {42, 21, 18, 10};  // FL, FR, RL, RR — native PWM 1–10 kHz
 constexpr uint8_t kWheelFR[4]  = {41, 47, 17, 11};  // direction
 constexpr uint8_t kWheelEN[4]  = {40, 48, 16, 12};  // enable  (per wheel)
@@ -136,10 +139,14 @@ constexpr uint32_t kPwmFreqHz = 1000;
 //   *** TURN THE ONBOARD RV POT FULLY LEFT, or external speed control FAILS ***
 // plus a 1–10 kΩ series resistor between GPIO and SV (manual FAQ A).
 //
-// SV is a HIGH-IMPEDANCE VOLTAGE INPUT — bench diode-test 2026-08-05 read open
-// in both directions, unlike EN/BRK/F-R which show a diode drop. It therefore
-// does NOT load the source, and the old "pot-wiper drags it down" note (and the
-// 2.59 V figure behind it) was the ESP32's weak DAC, not the driver.
+// SV input impedance: UNVERIFIED. A bench diode test on 2026-08-05 read open in
+// both directions, suggesting a high-impedance voltage input — but a later
+// powered test on the same terminals gave conducting readings, and the two
+// cannot both be right. Treat neither as established.
+//
+// It does not matter in practice: 3.3 V PWM at 2 kHz drives all four motors
+// through the transistor adapters, which is verified by behaviour. Re-measure
+// only if you need the driver's actual input model for a redesign.
 constexpr uint32_t kSvPwmFreqHz = 2000;
 
 // LEDC channels — used by Arduino-ESP32 core 2.x, ignored by the 3.x pin API.

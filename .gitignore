@@ -25,3 +25,14 @@ bench_ble/components/*
 bench_ble/managed_components/
 bench_ble/sdkconfig.esp32-s3-devkitc-1
 bench_ble/dependencies.lock
+
+# Python bytecode (pi/ modules and teleop.py)
+__pycache__/
+*.pyc
+
+# Bench session data — raw measurements, not source. Keep locally, do not commit;
+# the conclusions belong in docs/, the CSVs do not.
+bench_logs/
+
+# Superseded Arduino-IDE sketch, replaced by src/bench_motor.cpp
+bench_motor_test/

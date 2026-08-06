@@ -18,6 +18,8 @@ void onDock(SerialCommands*) { g_pending = Command::Dock; }
 void onAbort(SerialCommands*) { g_pending = Command::Abort; }
 void onUnclamp(SerialCommands*) { g_pending = Command::Unclamp; }
 void onStatus(SerialCommands*) { g_pending = Command::Status; }
+void onPing(SerialCommands*) { g_pending = Command::Heartbeat; }
+void onResume(SerialCommands*) { g_pending = Command::Resume; }
 void onUnknown(SerialCommands* sender, const char* cmd) {
   sender->GetSerial()->print(F("# unknown command: "));
   sender->GetSerial()->println(cmd);
@@ -27,6 +29,8 @@ SerialCommand g_cmd_dock("DOCK", onDock);
 SerialCommand g_cmd_abort("ABORT", onAbort);
 SerialCommand g_cmd_unclamp("UNCLAMP", onUnclamp);
 SerialCommand g_cmd_status("STATUS", onStatus);
+SerialCommand g_cmd_ping("PING", onPing);        // Pi heartbeat — feeds LinkWatchdog
+SerialCommand g_cmd_resume("RESUME", onResume);  // clear a latched LINK_LOST
 
 } // namespace
 
@@ -36,6 +40,8 @@ void SerialTelemetry::begin() {
   g_sc.AddCommand(&g_cmd_abort);
   g_sc.AddCommand(&g_cmd_unclamp);
   g_sc.AddCommand(&g_cmd_status);
+  g_sc.AddCommand(&g_cmd_ping);
+  g_sc.AddCommand(&g_cmd_resume);
 }
 
 void SerialTelemetry::pump() { g_sc.ReadSerial(); }
@@ -47,9 +53,11 @@ Command SerialTelemetry::poll() {
 }
 
 void SerialTelemetry::publish(const char* state, const bool* corner_present, size_t n_corners,
-                              const Pose2D& pose, bool confirmed, const FaultFlags& f) {
+                              const Pose2D& pose, bool confirmed, const FaultFlags& f,
+                              const char* link) {
   JsonDocument doc;
   doc["state"] = state;
+  doc["link"] = link;
   JsonArray corners = doc["corners"].to<JsonArray>();  // FL, FR, RL, RR
   for (size_t i = 0; i < n_corners; ++i) corners.add(corner_present[i]);
   doc["x_mm"] = pose.x_mm;

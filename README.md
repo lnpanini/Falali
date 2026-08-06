@@ -5,7 +5,19 @@ upward-facing time-of-flight sensors to confirm it is under the trolley and cent
 the underside, and then moves the trolley.
 
 - **Controller:** ESP32-S3-WROOM-1 **N16R8** (16 MB flash, 8 MB octal PSRAM)
-- **No** LiDAR, camera, ROS 2, SLAM, mapping, or Raspberry Pi — the ESP32 is the entire control stack.
+- **No** LiDAR, camera, ROS 2, SLAM, or mapping.
+
+> **Architecture change in progress (2026-08-04).** With 4× AS5600 wheel encoders and a BNO085 IMU
+> added, control moves to a **Raspberry Pi 5** driving two ESP32s over USB serial (base + arm). The
+> ESP32 is no longer the entire control stack. See
+> [`docs/superpowers/specs/2026-08-04-rpi5-main-controller-design.md`](docs/superpowers/specs/2026-08-04-rpi5-main-controller-design.md)
+> and the [Pi setup runbook](docs/rpi5-setup.md). Everything below still describes the current,
+> working single-ESP firmware — migrate in the order the spec gives.
+>
+> **Hardware facts live in [`docs/hardware-architecture.md`](docs/hardware-architecture.md)** —
+> GPIO map (extracted from the PCB netlist, not inferred), I²C address map, driver interface,
+> parts list and decision log. The pin table further down this README is the *pre-PCB design
+> intent* and does **not** match the fabricated board.
 
 Full design: [`docs/superpowers/specs/2026-07-06-trolleybot-esp32-docking-design.md`](docs/superpowers/specs/2026-07-06-trolleybot-esp32-docking-design.md).
 

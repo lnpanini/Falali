@@ -14,38 +14,85 @@ Keys (handled by the firmware):
 Local key:
     Q (capital)    quit teleop
 """
+import argparse
+import csv
+import datetime
 import glob
+import os
+import re
 import sys
 import threading
+import time
 import serial  # pyserial
 
 BAUD = 115200
 
+# Status lines from src/bench_s3_motor.cpp look like:
+#   EN:on  BRK:off DIR:fwd  duty 1228/4095 (30%)  ~0.99 V at SV
+STATUS_RE = re.compile(
+    r"EN:(\w+)\s+BRK:(\w+)\s+DIR:(\w+)\s+duty\s+(\d+)/(\d+)\s+\((\d+)%\)\s+~([\d.]+)\s*V"
+)
+
 
 def find_port():
-    for pat in ("/dev/cu.wchusbserial*", "/dev/cu.usbserial*", "/dev/cu.usbmodem*"):
+    # macOS first, then Linux (so this also runs on the Pi).
+    for pat in ("/dev/cu.wchusbserial*", "/dev/cu.usbserial*", "/dev/cu.usbmodem*",
+                "/dev/ttyUSB*", "/dev/ttyACM*"):
         hits = sorted(glob.glob(pat))
         if hits:
             return hits[0]
     return None
 
 
-def reader(port, stop):
+def reader(port, stop, writer=None, raw=None, t0=0.0):
+    """Print the serial stream; parse status lines into CSV if logging."""
     while not stop.is_set():
         try:
             line = port.readline()
         except Exception:
             break
-        if line:
-            # \r keeps the line readable while the user is also typing.
-            sys.stdout.write("\r" + line.decode(errors="replace").rstrip() + "\n")
-            sys.stdout.flush()
+        if not line:
+            continue
+        text = line.decode(errors="replace").rstrip()
+        # \r keeps the line readable while the user is also typing.
+        sys.stdout.write("\r" + text + "\n")
+        sys.stdout.flush()
+
+        if raw is not None:
+            raw.write(f"{time.time() - t0:8.3f}  {text}\n")
+            raw.flush()
+
+        if writer is not None:
+            m = STATUS_RE.search(text)
+            if m:
+                en, brk, dirn, duty, full, pct, volts = m.groups()
+                writer.writerow({
+                    "t_s": round(time.time() - t0, 3),
+                    "enabled": en == "on",
+                    "brake": brk == "on",
+                    "direction": dirn,
+                    "duty": int(duty),
+                    "duty_full": int(full),
+                    "duty_pct": int(pct),
+                    "sv_volts_est": float(volts),
+                    # Filled in by hand after the run — the bench has no RPM
+                    # feedback until the encoders are wired.
+                    "measured_rpm": "",
+                    "note": "",
+                })
 
 
 def main():
-    port_name = find_port()
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--log", nargs="?", const="auto", default=None, metavar="PREFIX",
+                    help="record the session. Writes PREFIX.csv (parsed status) and "
+                         "PREFIX.log (raw stream). Omit the value to auto-name by date.")
+    ap.add_argument("--port", default=None, help="serial device (default: autodetect)")
+    args = ap.parse_args()
+
+    port_name = args.port or find_port()
     if not port_name:
-        print("No /dev/cu.wchusbserial* (or usbserial/usbmodem) port found — is the ESP32 plugged in?")
+        print("No serial port found (cu.wchusbserial* / ttyUSB* / ttyACM*) — is the ESP plugged in?")
         return 1
     try:
         port = serial.Serial(port_name, BAUD, timeout=0.2)
@@ -56,8 +103,27 @@ def main():
     print(f"connected {port_name} @ {BAUD}")
     print("  w/a/s/d move | q/e rotate | space stop | g align | x abort | Q quit")
 
+    writer = csv_f = raw_f = None
+    if args.log:
+        prefix = args.log
+        if prefix == "auto":
+            os.makedirs("bench_logs", exist_ok=True)
+            prefix = os.path.join(
+                "bench_logs",
+                "bench_" + datetime.datetime.now().strftime("%Y%m%d_%H%M%S"))
+        csv_f = open(prefix + ".csv", "w", newline="")
+        raw_f = open(prefix + ".log", "w")
+        writer = csv.DictWriter(csv_f, fieldnames=[
+            "t_s", "enabled", "brake", "direction", "duty", "duty_full",
+            "duty_pct", "sv_volts_est", "measured_rpm", "note"])
+        writer.writeheader()
+        print(f"  logging -> {prefix}.csv (parsed) and {prefix}.log (raw)")
+        print("  NOTE: measured_rpm is left blank — fill it in as you sweep.")
+
     stop = threading.Event()
-    threading.Thread(target=reader, args=(port, stop), daemon=True).start()
+    t0 = time.time()
+    threading.Thread(target=reader, args=(port, stop, writer, raw_f, t0),
+                     daemon=True).start()
 
     import termios
     import tty
@@ -74,8 +140,18 @@ def main():
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
         stop.set()
+        # Leave the rig safe on the way out, whatever happened.
+        try:
+            port.write(b"x")
+            port.flush()
+            time.sleep(0.1)
+        except Exception:
+            pass
         port.close()
-        print("\nbye")
+        for f in (csv_f, raw_f):
+            if f:
+                f.close()
+        print("\nbye (sent 'x' E-STOP on exit)")
     return 0
 
 

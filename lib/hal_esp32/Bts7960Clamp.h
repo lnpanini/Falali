@@ -20,7 +20,15 @@ public:
       : rpwm_(rpwm), rpwm_ch_(rpwm_channel), lpwm_(lpwm), lpwm_ch_(lpwm_channel), en_(en),
         is_close_(is_close), is_open_(is_open), k_(amps_per_volt), active_is_(is_close) {}
 
+  // Present only when every pin is wired. On the Wheel Drive PCB the clamp lives
+  // on ESP-ARM, so all pins are kNoPin and every method below no-ops rather than
+  // driving GPIOs that belong to the rear-right wheel.
+  bool present() const {
+    return rpwm_ != pins::kNoPin && lpwm_ != pins::kNoPin && en_ != pins::kNoPin;
+  }
+
   void begin() {
+    if (!present()) return;
     pinMode(en_, OUTPUT);
     digitalWrite(en_, HIGH);  // R_EN/L_EN active-high
     rpwm_pwm_.begin(rpwm_, rpwm_ch_, pins::kPwmFreqHz, pins::kPwmResBits);
@@ -29,11 +37,13 @@ public:
   }
 
   void close(float speed) override {
+    if (!present()) return;
     lpwm_pwm_.writeDuty(0);
     rpwm_pwm_.writeFraction(speed);
     active_is_ = is_close_;
   }
   void open(float speed) override {
+    if (!present()) return;
     rpwm_pwm_.writeDuty(0);
     lpwm_pwm_.writeFraction(speed);
     active_is_ = is_open_;

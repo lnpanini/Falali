@@ -1,0 +1,332 @@
+# TrolleyBot — hardware architecture and parts list
+
+**Last updated:** 2026-08-05
+**Authoritative sources:** `Wheel Drive PCB.net` (Eeschema 9.0.6, 2026-08-05) for every
+GPIO assignment; `docs/BLD-120-English-version.pdf` for driver behaviour; bench
+measurements dated inline.
+
+This document exists because the same facts kept getting re-derived from rendered
+schematics and stale notes, and twice got derived wrong. **Anything here that
+contradicts a comment elsewhere in the repo — trust this, or re-extract from the
+netlist.**
+
+---
+
+## 1. System topology
+
+```
+Raspberry Pi 5  ──USB──  ESP-BASE (Wheel Drive PCB)  ──  4× BLD-120A  ──  4× BLDC motor
+   (brain)                 ESP32-S3-DevKitC-1 N16R8        (24 V)          (15:1 gearbox)
+                                  │
+                                  ├── 4× AS5600 encoder      (via TCA9548A mux)
+                                  ├── 4× VL53L0X ToF         (XSHUT re-addressing)
+                                  ├── 1× BNO085 IMU
+                                  └── 1× ADS1115 ← 4× ACS758LCB current sensors
+
+Raspberry Pi 5  ──USB──  ESP-ARM  ──  BTS7960  ──  clamp actuator     [not yet built]
+```
+
+See `docs/superpowers/specs/2026-08-04-rpi5-main-controller-design.md` for the
+control split and the link watchdog.
+
+---
+
+## 2. GPIO map — ESP32-S3-DevKitC-1 **N16R8**
+
+Extracted from the netlist. Mirrored in `include/pins.h`; that file is the code's
+copy of this table.
+
+### Wheel motors (index order FL, FR, RL, RR — matches `tb::Corner`)
+
+| Signal | FL | FR | RL | RR |
+|---|---|---|---|---|
+| **SV** (speed, PWM) | 42 | 21 | 18 | 10 |
+| **F/R** (direction) | 41 | 47 | 17 | 11 |
+| **EN** (enable) | 40 | 48 | 16 | 12 |
+| **BRK** (brake) | 39 | 38 | 15 | 13 |
+
+**EN and BRK are per-wheel, not ganged.** The pre-PCB design assumed one shared
+pair; the fabricated board gives each wheel its own. Independent shutdown is
+strictly better, but `main.cpp` must pass each motor its own pins.
+
+**There is no ALARM net.** The BLD-120A exposes no ALM terminal — "RUN/ALM" is an
+LED. `pins::kWheelALARM == kNoPin`.
+
+### Sensors
+
+| Signal | GPIO | Note |
+|---|---|---|
+| ToF XSHUT FL/FR/RL/RR | 4, 5, 6, 7 | per-sensor reset for address assignment |
+| I²C SDA / SCL | 8 / 9 | one bus for everything |
+| Encoder analog FL/FR/RL/RR | 1, 2, 3, 14 | **only if not using the mux** — see §5 |
+
+### Reserved and free
+
+| Pins | Status |
+|---|---|
+| 26–37 | flash + octal PSRAM — **board correctly leaves 35/36/37 unconnected** |
+| 19, 20 | native USB — unconnected |
+| 0, 45, 46 | strapping — unconnected |
+| **43, 44** | UART0 — **free**, the only clean spares (usable if serial goes over native USB-CDC) |
+
+26 GPIO used, no duplicates, no reserved-pin conflicts. Verified programmatically.
+
+---
+
+## 3. BLD-120A driver interface
+
+### Speed (SV)
+
+The driver has a **native PWM speed input**: manual, Speed Command mode C —
+*"speed can be adjusted by PWM control between 1KHz~10KHz, motor speed is
+influenced by duty."* No DAC, op-amp or RC filter needed.
+
+- `kSvPwmFreqHz = 5000` — **1–10 kHz is a hard spec range**, not a preference
+- 1–10 kΩ series resistor between GPIO and SV (manual FAQ A). 1.5 kΩ in use.
+- **SV is a high-impedance voltage input.** Diode test 2026-08-05 read open in
+  both directions, unlike EN/BRK/F-R which show a diode drop. It does *not* load
+  the source — the old "pot-wiper drags it down" claim, and the 2.59 V figure
+  behind it, were the ESP32's weak DAC on the WROOM-32D bench rig, not the driver.
+
+### Control lines (EN / BRK / F-R) — opto-isolated, idle near 5 V
+
+Each is an optocoupler LED fed from the driver's internal rail. Measured
+2026-08-05: pull-up ≈10 kΩ, ≈440 µA when pulled to COM. **The ESP32-S3 is not
+5 V tolerant** — these must never connect straight to a GPIO.
+
+### Polarity (bench-confirmed 2026-07-15, datasheet-confirmed 2026-08-05)
+
+| Line | Asserted state at the driver pin | Meaning |
+|---|---|---|
+| EN | LOW (connected to COM) | motor enabled |
+| BRK | LOW (connected to COM) | brake applied |
+| F/R | HIGH (released) | forward |
+
+### Onboard trims — both matter
+
+| Trim | Function | Required setting |
+|---|---|---|
+| **RV** | speed pot, sums with external input | **fully anticlockwise (left)** — external speed control *fails* otherwise (manual, stated 3×) |
+| **P-sv** | overload power limit, 30–120 W | **set to the motor's rated watts** — wrong value trips the red LED and the motor won't run |
+
+P-sv is the *only* hardware overload protection on this drivetrain. It is not a
+speed trim, despite what earlier bench notes claimed.
+
+---
+
+## 4. Transistor adapter (×4) — required between PCB and driver
+
+Converts 3.3 V push-pull GPIO into an open-collector pull to COM, and keeps the
+driver's ~5 V rail off the ESP.
+
+```
+GPIO ──/\/\/\── 10 kΩ ──┬── Base
+                        │
+                     100 kΩ          ← gate/base pulldown: CRITICAL.
+                        │              Holds the transistor OFF while the GPIO is
+                       COM             Hi-Z at boot, reset, or unplugged.
+Collector → driver input
+Emitter   → COM
+```
+
+Pass-through, same pin order both sides (`BRK · EN · F/R · COM · SV`):
+
+| Pin | Treatment |
+|---|---|
+| 1 BRK, 2 EN, 3 F/R | transistor as above |
+| 4 COM | direct wire |
+| 5 SV | 1.5 kΩ series resistor |
+
+**The transistor inverts every control line.** Handled in firmware by the single
+switch `tb::kControlViaMosfet` in `Bld120aMotor.h`, which derives all four
+polarity constants and forces push-pull gate drive. Verified by `static_assert`.
+
+**Device:** BC547 or 2N3904 (NPN, from existing stock). Base current
+(3.3 − 0.7)/10 k = 260 µA against a 440 µA load — saturates hard.
+
+> ⚠️ **BC547 is C-B-E; 2N3904 is E-B-C** (flat face toward you, legs down).
+> Identical packages, mirrored pinouts. Pick one type and stay with it.
+
+### The wiring error that cost an evening (2026-08-05)
+
+The first adapter was built like this, and the motor would not run at all:
+
+```
+WRONG                                RIGHT
+ESP ──10k── B                        ESP ──10k──┬── B
+            C ──100k── COM                      │
+            E ───────── driver                100k
+                                                │
+                                               COM
+                                                C ───────── driver
+                                                E ───────── COM
+```
+
+Two faults at once: **C and E swapped**, and the **100 kΩ on the collector instead
+of the base**. The transistor did nothing, EN never asserted, and the driver sat
+happily idle showing a green LED — no alarm, because from its point of view it had
+simply been told to stop.
+
+**Diagnostic signature, for next time:**
+
+| Measurement | Healthy | What we saw |
+|---|---|---|
+| base → COM, GPIO high | **~0.7 V** (junction clamps) | **1.678 V** — junction not conducting |
+| collector → COM, enabled vs disabled | huge change | **1.069 → 0.945 V** — barely moves |
+
+A base that will not clamp at ~0.7 V means the B-E path to COM is broken. A
+collector that does not change between states means the transistor is not
+switching. Nothing was damaged — currents were microamps throughout.
+
+---
+
+## 5. I²C bus — one bus, shared by everything
+
+| Device | Address | Collision handling |
+|---|---|---|
+| 4× VL53L0X ToF | `0x29` ×4 | **XSHUT re-addressing** — held in reset, brought up one at a time (`Vl53l0xArray`) |
+| 4× AS5600 encoder | `0x36` ×4 | **TCA9548A mux**, channels 0–3 — address is fixed in silicon, no address pin |
+| TCA9548A | `0x70` | — |
+| BNO085 IMU | `0x4A` | — |
+| ADS1115 | **`0x48`** | ADDR → GND. **Do not leave floating or tie to SDA** — that gives `0x4A` and collides with the IMU |
+
+### Mux installation requires trace surgery
+
+SDA/SCL are commoned across the whole board, so an inline adapter won't isolate
+anything. **Cut SDA and SCL at each of the four encoder connectors (8 cuts)** and
+feed each from a TCA9548A channel. Everything else stays on the main bus upstream.
+
+Buy **2** — one is needed, the second is insurance against a lifted pad.
+
+### If the mux is skipped
+
+Each AS5600's analog `OUT` is already wired to GPIO1/2/3/14. Workable, but:
+- **GPIO3** is a strapping pin (JTAG source select)
+- **GPIO14** is ADC2 — stops working the moment WiFi is enabled
+- lower effective resolution and noisier than the 12-bit I²C read
+
+Both problems disappear with the mux, since those four pins then go unused.
+
+> **Note:** AS5600**L** would also solve this (programmable address, library
+> already supports it at `0x40`) — but it has **no analog output**, only I²C or
+> PWM. Not a drop-in for a board that routes the analog pin.
+
+---
+
+## 6. Current sensing
+
+**4× ACS758LCB → ADS1115 (4-channel, 16-bit) → I²C**
+
+This feeds `StallDetector`, which — with no ALM terminal and P-sv as the only
+hardware trip — is the main software protection for the drivetrain.
+
+### Why the ACS758 is the right choice — headroom beats sensitivity
+
+The driver is rated **8 A continuous, 30 A instantaneous (<3 s)** (manual p.2).
+Sizing the sensor to the *running* current (~0.2–1 A) leaves it blind during
+exactly the events worth measuring.
+
+Both candidates, ratiometrically scaled to the board's 3.3 V rail:
+
+| Part | Sensitivity | Noise (current-referred) | Output clips at |
+|---|---|---|---|
+| **ACS758LCB-050B** | 26.4 mV/A | 0.175 A rms | **±62 A** |
+| ACS712-05B | 122 mV/A | 0.114 A rms | **5 A** |
+
+**The resolution gap is 1.5×, not the ~25× a sensitivity comparison implies** —
+Hall noise scales with sensitivity, so current-referred noise barely moves between
+parts. An earlier revision of this document called the ACS758 "badly oversized".
+That was wrong, and this section is the correction.
+
+What each part actually sees:
+
+| Condition | ACS758-050B | ACS712-05B |
+|---|---|---|
+| 0.5 A running | 1.66 V | 1.71 V |
+| 1 A loaded | 1.68 V | 1.77 V |
+| **8 A stalled** | 1.86 V | **CLIPPED** |
+| **30 A inrush** | 2.44 V | **CLIPPED** |
+
+A clipped sensor cannot tell 5 A from 30 A — the difference between "working hard"
+and "something is badly wrong". For a signal feeding a fault trip, that matters far
+more than resolving 100 mA at idle.
+
+**Resolution is sensor-limited, not ADC-limited.** ADS1115 at PGA ±2.048 V gives
+62.5 µV/LSB = **2.4 mA per count**, 74× finer than the sensor's own noise floor.
+Averaging 8 samples brings that floor to ~62 mA — fine enough to spot a seized
+caster from the current differential between wheels.
+
+### Remaining choices
+
+1. **Prefer `-050B` (bidirectional) over `-050U`.** DC-bus current is nominally
+   one-directional, but applying BRK can push energy back toward the supply. `B`
+   costs one bit of range and removes the question.
+2. **Supply rail.** The board feeds J8/J9/J12/J14/J17 from **3.3 V** (`3V Wheel`).
+   ACS758 is ratiometric, so at 3.3 V a -050B gives 26.4 mV/A with a 1.65 V zero
+   point — read directly by a 3.3 V ADS1115, no divider, no level shifting.
+   Powering it at 5 V instead puts up to 5 V into a 3.3 V ADC input and needs a
+   divider. **Confirm the rail before wiring.**
+3. The sensor is *observation*, not protection. The real trip chain is the driver's
+   P-sv overload trim, then the 10 A fuse, then software.
+
+---
+
+## 7. Bill of materials
+
+### Board-mounted (not yet fitted)
+
+| Qty | Part | Where |
+|---|---|---|
+| 4 | 1×03 male header 2.54 mm | J2, J10, J13, J16 |
+| 8 | 1×04 male header | J1, J11, J15, J18, J9, J12, J14, J17 |
+| 4 | 1×05 male header | J4–J7 |
+| 4 | 1×06 male header | TOF5–8 |
+| 2 | 1×10 male header | J8, J19 |
+| 2 | 1×22 **female** header | U6 — **socket it, don't solder the DevKit down** |
+| 1 | 2-pos 5.08 mm terminal block (Phoenix MKDS-1,5-2-5.08 or equiv.) | J3 |
+| 4 | M3 screw + standoff | H1–H4 |
+
+108 male positions ≈ three 40-pin breakaway strips; 44 female ≈ two strips.
+
+### Modules
+
+| Qty | Part | Stage |
+|---|---|---|
+| 1 | ESP32-S3-DevKitC-1 **N16R8** | move |
+| 4 | BLD-120A driver + BLDC motor, 15:1, 150 mm wheel | move |
+| 4 | transistor adapter (BC547/2N3904 + 10 k + 100 k + 1.5 k) | move |
+| 2 | **TCA9548A** breakout | sense |
+| 4 | AS5600 breakout | sense |
+| 4 | VL53L0X breakout — **must break out XSHUT** | dock |
+| 1 | BNO085 breakout (10-pin) | dock |
+| 1 | ADS1115 breakout | sense |
+| 4 | ACS758LCB (see §6 open questions) | sense |
+
+**To get wheels turning you need only the "move" rows** plus the J4–J7 headers,
+the DevKitC socket, J3 and the standoffs.
+
+---
+
+## 8. Decision log
+
+| Date | Decision |
+|---|---|
+| 2026-08-04 | Pi 5 becomes the brain; ESPs become I/O. Link watchdog + latch is mandatory. |
+| 2026-08-05 | `pins.h` rebuilt from the netlist — the previous map was pre-PCB design intent and did not match the fabricated board (SV on the ToF XSHUT pins, I²C on two BRK lines). |
+| 2026-08-05 | PWM resolution 8 → 12-bit; SV carrier 20 kHz → 5 kHz (20 kHz was outside the driver's 1–10 kHz spec). |
+| 2026-08-05 | No DAC / op-amp / level shifter for SV — the driver takes PWM natively and SV is high-impedance. |
+| 2026-08-05 | Encoders via TCA9548A rather than AS5600L, to keep the existing AS5600 stock. |
+
+## 9. Open items
+
+- [ ] **Minimum speed.** Break-away ≈0.78 V → ~413 mm/s at the wheel, already
+      above the 300 mm/s target, and one 20 ms tick moves 8.3 mm against an
+      8 mm centring tolerance. Likely a gearing/wheel-diameter problem, not a
+      firmware one. The driver's PID speed loop may rescue it — **settle with the
+      REF+ → 1 kΩ → SV pot sweep.**
+- [ ] `max_lin_mm_s = 300` is wrong; actual is ~1400 mm/s at full command.
+      Odometry currently under-estimates every distance by ~4.7×.
+- [ ] `main.cpp` still passes one shared EN/BRK pair to all four motors.
+- [ ] ACS758LCB-**050B** confirmed as the right part (§6); still to confirm the
+      supply rail is 3.3 V and set ADS1115 ADDR→GND for `0x48`.
+- [ ] Confirm the motor's rated watts, to set P-sv.

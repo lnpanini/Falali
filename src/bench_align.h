@@ -23,15 +23,19 @@ inline const uint8_t MUX_ADDR = 0x70;
 // ---- Alignment tunables (bench-tune to the real mounting height) ------------
 inline const uint16_t BAND_MIN_MM = 20; // board "present" when reading in [min,max]
 inline const uint16_t BAND_MAX_MM = 500;
-inline const uint8_t DEBOUNCE_N = 2;
+inline const uint8_t DEBOUNCE_N = 2; // 2 agreeing samples to flip (noise rejection restored)
 inline const int ALIGN_ROT_DUTY = 90;            // ORIENT rotate duty (gentle -> less overshoot)
-inline const int CENTER_DUTY = 90;               // CENTER_X creep duty (slow -> bigger x_far, clean midpoint)
+inline const int CENTER_DUTY = 90;               // CENTER_X creep duty (90 sustains straight motion; 70 stalled under load)
+inline const int APPROACH_DUTY = 90;             // A-triggered forward approach (90 sustains; 70 stalled under load)
 inline const float CREEP_NOMINAL_MMPS = 150.0f;  // odometry scale (cancels at midpoint)
 inline const float CENTER_TOL_MM = 12.0f;
 inline const float FRONT_OFFSET_MM = 0.0f;
 inline const uint32_t ORIENT_TIMEOUT_MS = 10000;
 inline const uint32_t LOST_TIMEOUT_MS = 1500;
 inline const uint32_t CENTER_TIMEOUT_MS = 12000;
+inline const uint32_t APPROACH_TIMEOUT_MS = 8000; // give up creeping if no edge is found
+inline const float MISALIGN_TOL_MM = 15.0f;       // far-edge skew above this -> backtrack + re-align
+inline const int MAX_REALIGN_RETRIES = 2;         // then accept & center (no infinite retry)
 
 // Anti-stall: before each align move-from-rest, settle to a symmetric friction
 // state (PAUSE), then a brief full-duty pulse to break stiction (KICK), so both
@@ -39,11 +43,18 @@ inline const uint32_t CENTER_TIMEOUT_MS = 12000;
 inline const uint32_t PAUSE_MS = 150;
 inline const uint32_t KICK_MS = 80;
 inline const int KICK_DUTY = 255;
+// Edge-hold recovery: if the ORIENT jerk knocks the leading sensor out past the
+// edge (BOTH sensors go absent), inch straight forward at this duty to slide them
+// back under the board. Pure translation -> all wheels equal duty -> no stall.
+inline const int RECOVER_DUTY = 110;
 // Pivot compensation: bias ORIENT to rotate about the *leading* (already-detected)
 // sensor instead of the robot centre, so it doesn't drift off the edge during the
 // correction. Forward-bias gain = c / L_char = 26.25 / (68.75 + 82.5) ~= 0.17.
-// Sign + magnitude are verify-on-hardware; flip the sign if the cant gets worse.
-inline const float PIVOT_GAIN = 0.17f;
+// TEMPORARILY DISABLED (=0) to isolate a bench fault: with it on, the b&&!a case
+// both rotated off the edge (vx_comp sign didn't mirror between the two cases) and
+// starved the back-left wheel to 64 duty (stall). Prove pure symmetric rotation is
+// correct first, THEN re-enable with a hardware-verified, properly mirrored sign.
+inline const float PIVOT_GAIN = 0.0f;
 
 // ---- ToF --------------------------------------------------------------------
 inline VL53L0X tofA, tofB;
@@ -65,7 +76,7 @@ inline bool initOne(VL53L0X &s) {
   for (int i = 0; i < 3 && !ok; ++i)
     ok = s.init();
   if (ok) {
-    s.setMeasurementTimingBudget(33000);
+    s.setMeasurementTimingBudget(33000); // 33ms: stable reads (20ms was too noisy for N=2)
     s.startContinuous();
   }
   return ok;
@@ -73,7 +84,7 @@ inline bool initOne(VL53L0X &s) {
 // Bring up both front sensors: mux (ch0/ch1) if present, else XSHUT (A@0x30, B@0x29).
 inline void alignSetup() {
   Wire.begin(PIN_SDA, PIN_SCL);
-  Wire.setClock(100000);
+  Wire.setClock(100000); // 100kHz: reliable on the bench wiring (400k dragged the loop)
   useMux = i2cPresent(MUX_ADDR);
   if (useMux) {
     muxSelect(0);
@@ -96,18 +107,31 @@ inline void alignSetup() {
   delay(20);
   okB = initOne(tofB);
 }
-// Range in mm; sets *valid. Rejects no-target/signal-fail glitches at the source:
-// only device range status 11 is a valid measurement (0x14 = RESULT_RANGE_STATUS).
-inline uint16_t readOne(VL53L0X &s, bool ok, uint8_t muxCh, bool *valid) {
+// Non-blocking range read: consumes a sample ONLY when the sensor signals one is
+// ready (RESULT_INTERRUPT_STATUS), otherwise returns the cached value immediately
+// so the control loop is never gated by the ~20ms integration (the stock
+// readRangeContinuousMillimeters() spins until a fresh sample -- that spin was
+// most of our sensing-to-logic latency). Range status 11 = a valid measurement
+// (rejects no-target/signal-fail glitches at the source). *fresh tells the caller
+// whether cachedMm/cachedValid were just updated (so it can debounce on real
+// samples, not on cached repeats).
+inline uint16_t readOne(VL53L0X &s, bool ok, uint8_t muxCh, uint16_t &cachedMm,
+                        bool &cachedValid, bool *fresh) {
+  *fresh = false;
   if (!ok) {
-    *valid = false;
+    cachedValid = false;
     return 0xFFFF;
   }
   if (useMux)
     muxSelect(muxCh);
-  const uint16_t mm = s.readRangeContinuousMillimeters();
-  const uint8_t rangeStatus = (s.readReg(0x14) & 0x78) >> 3;
-  *valid = !s.timeoutOccurred() && rangeStatus == 11 && mm < 8000;
+  if ((s.readReg(VL53L0X::RESULT_INTERRUPT_STATUS) & 0x07) == 0)
+    return cachedMm; // no new sample yet -> don't block, reuse last reading
+  const uint16_t mm = s.readReg16Bit(VL53L0X::RESULT_RANGE_STATUS + 10);
+  const uint8_t rangeStatus = (s.readReg(VL53L0X::RESULT_RANGE_STATUS) & 0x78) >> 3;
+  s.writeReg(VL53L0X::SYSTEM_INTERRUPT_CLEAR, 0x01); // let the next sample latch
+  cachedValid = (rangeStatus == 11 && mm < 8000);
+  cachedMm = mm;
+  *fresh = true;
   return mm;
 }
 
@@ -128,13 +152,17 @@ struct Presence {
 inline Presence presA, presB;
 
 // ---- Mode / state machine ---------------------------------------------------
-enum class Mode { Manual, Orient, CenterSeek, CenterReturn, Centered };
+enum class Mode { Manual, Approach, Orient, CenterSeek, CenterReturn, Backtrack, Centered };
 inline Mode mode = Mode::Manual;
 inline uint32_t mode_since = 0;
 inline uint32_t both_lost_since = 0;
-inline bool prev_any = false;
-inline bool armed = false;
-inline bool auto_trigger = false; // OFF by default; A enables, B disables
+inline bool auto_trigger = false; // armed by A, disarmed by B; OFF at boot
+
+// Far-edge skew detection + auto-realign bookkeeping.
+inline float seek_x_first = 0.0f;       // odom_x when the FIRST sensor cleared the far edge
+inline bool seek_first_recorded = false;
+inline int realign_retries = 0;         // re-align attempts this dock (capped)
+inline bool reentered = false;          // Backtrack: board re-entered on the way out
 
 // cached readings for the frontend's status display
 inline uint16_t g_mmA = 0, g_mmB = 0;
@@ -192,61 +220,83 @@ inline void alignStartManual() { // serial 'g' one-shot
 
 // ---- One iteration: read sensors, run the state machine, drive the motors ---
 inline void alignUpdate(float vx, float vy, float w) {
-  bool vA = false, vB = false;
-  const uint16_t mmA = readOne(tofA, okA, 0, &vA);
-  const uint16_t mmB = readOne(tofB, okB, 1, &vB);
-  presA.update(mmA, vA);
-  presB.update(mmB, vB);
-  g_mmA = mmA;
-  g_vA = vA;
-  g_mmB = mmB;
-  g_vB = vB;
+  // Non-blocking reads: consume a sample only when one is ready, else reuse the
+  // cached g_mm*/g_v* (which double as the frontend's display values) so the loop
+  // runs at full speed instead of stalling on the integration. Debounce only on
+  // fresh samples so DEBOUNCE_N counts real sensor updates, not loop iterations.
+  bool freshA = false, freshB = false;
+  readOne(tofA, okA, 0, g_mmA, g_vA, &freshA);
+  readOne(tofB, okB, 1, g_mmB, g_vB, &freshB);
+  if (freshA)
+    presA.update(g_mmA, g_vA);
+  if (freshB)
+    presB.update(g_mmB, g_vB);
   const bool a = presA.present, b = presB.present, any = a || b;
 
-  // Any manual stick input yields control back to manual.
-  const bool manualActive = (vx != 0.0f || vy != 0.0f || w != 0.0f);
-  if (manualActive && mode != Mode::Manual)
-    setMode(Mode::Manual);
-
-  if (!any)
-    armed = true; // saw genuine clear space -> arm (kills boot/no-target glitch)
-  if (mode == Mode::Manual && auto_trigger && armed && any && !prev_any)
-    startOrient();
-  prev_any = any;
+  // A arms (auto_trigger). Arming starts the autonomous dock: if already on an edge
+  // go straight to ORIENT, otherwise slow-APPROACH forward until the first edge.
+  // From there stick input is ignored (the auto-mode switch cases never read
+  // vx/vy/w) and B is the only way out (alignSetAuto(false) -> abortToManual()).
+  // Boot/no-target glitches are rejected at the sensor (range-status 11 in readOne).
+  if (mode == Mode::Manual && auto_trigger) {
+    realign_retries = 0; // fresh dock -> reset the re-align budget
+    if (any)
+      startOrient();
+    else
+      setMode(Mode::Approach);
+  }
 
   switch (mode) {
   case Mode::Manual:
     driveMixF(vx, vy, w, g_speed);
     break;
+  case Mode::Approach: {
+    // A-triggered slow creep toward the board; hand to ORIENT at the first edge.
+    if (any) {
+      stopAll();
+      startOrient();
+      break;
+    }
+    const int duty = phaseDuty(millis() - mode_since, APPROACH_DUTY);
+    if (duty == 0) { // settle/kick from rest
+      stopAll();
+      break;
+    }
+    driveMix(1, 0, 0, duty);
+    if (millis() - mode_since > APPROACH_TIMEOUT_MS)
+      abortToManual(); // crept the full timeout with no edge -> give up
+    break;
+  }
   case Mode::Orient: {
     if (a && b) {
       stopAll();
       odoReset();
+      seek_first_recorded = false; // start a fresh far-edge skew measurement
       setMode(Mode::CenterSeek);
       break;
     }
     const int duty = phaseDuty(millis() - mode_since, ALIGN_ROT_DUTY);
-    if (duty == 0) { // settle first
+    if (duty == 0) { // settle first (symmetric stiction break)
       stopAll();
       break;
     }
-    // Rotate toward the lagging sensor, pivoting about the leading (present)
-    // sensor so it doesn't drift off the edge during the correction.
-    const float rot = (a && !b) ? -1.0f : +1.0f;
-    float vx_comp = 0.0f;
-    if (a && !b)
-      vx_comp = rot * PIVOT_GAIN; // left sensor leading (+c)
-    else if (b && !a)
-      vx_comp = -rot * PIVOT_GAIN; // right sensor leading (-c)
-    driveMixF(vx_comp, 0.0f, rot, duty);
+    // Edge-hold recovery: the rotation jerk can fling the leading sensor out past
+    // the edge, dropping BOTH to absent. Don't spin blindly -- inch straight
+    // forward (pure translation -> all wheels equal duty -> no stall) to slide the
+    // sensors back under the board; rotation resumes the instant one re-catches.
     if (!a && !b) {
       if (both_lost_since == 0)
         both_lost_since = millis();
-      else if (millis() - both_lost_since > LOST_TIMEOUT_MS)
-        abortToManual();
-    } else {
-      both_lost_since = 0;
+      driveMix(1, 0, 0, RECOVER_DUTY);
+      if (millis() - both_lost_since > LOST_TIMEOUT_MS)
+        abortToManual(); // inched forward and still never re-caught -> give up
+      break;
     }
+    both_lost_since = 0;
+    // Exactly one sensor present: rotate toward the lagging sensor (pure spin;
+    // pivot-comp retired -- the recovery-inch above solves edge-drift instead).
+    const float rot = (a && !b) ? -1.0f : +1.0f;
+    driveMixF(0.0f, 0.0f, rot, duty);
     if (millis() - mode_since > ORIENT_TIMEOUT_MS)
       abortToManual();
     break;
@@ -260,9 +310,25 @@ inline void alignUpdate(float vx, float vy, float w) {
     }
     driveMix(1, 0, 0, duty);
     odoStep(+1, duty);
+    // Far-edge skew = along-track gap between the two sensors clearing the far edge
+    // (~52.5mm * tan(yaw)); a big gap means the straight drive drifted off-square.
+    // Record the first loss; if it re-acquires before the second, it was noise.
+    if ((a != b) && !seek_first_recorded) {
+      seek_first_recorded = true;
+      seek_x_first = odom_x;
+    } else if (a && b) {
+      seek_first_recorded = false;
+    }
     if (!a && !b) {
       x_far = odom_x;
-      setMode(Mode::CenterReturn);
+      const float skew = seek_first_recorded ? (x_far - seek_x_first) : 0.0f;
+      if (skew > MISALIGN_TOL_MM && realign_retries < MAX_REALIGN_RETRIES) {
+        realign_retries++;
+        reentered = false;
+        setMode(Mode::Backtrack); // crossed far edge off-square -> back out & retry
+      } else {
+        setMode(Mode::CenterReturn); // square enough (or out of retries) -> center
+      }
     } else if (millis() - mode_since > CENTER_TIMEOUT_MS) {
       abortToManual();
     }
@@ -289,6 +355,26 @@ inline void alignUpdate(float vx, float vy, float w) {
     }
     break;
   }
+  case Mode::Backtrack: {
+    // Far edge was crossed off-square: reverse straight out past the NEAR edge
+    // (re-enter the board, then leave it), then re-run the slow approach so ORIENT
+    // re-squares at the near edge. Pure -x translation -> all wheels equal -> no stall.
+    const int duty = phaseDuty(millis() - mode_since, CENTER_DUTY);
+    if (duty == 0) {
+      stopAll();
+      break;
+    }
+    driveMix(-1, 0, 0, duty);
+    if (a && b)
+      reentered = true; // back under the board
+    if (reentered && !any) {
+      stopAll();
+      setMode(Mode::Approach); // backed out the near side -> fresh approach
+    } else if (millis() - mode_since > CENTER_TIMEOUT_MS) {
+      abortToManual();
+    }
+    break;
+  }
   case Mode::Centered:
     stopAll();
     break;
@@ -299,9 +385,11 @@ inline void alignUpdate(float vx, float vy, float w) {
 inline const char *alignModeName() {
   switch (mode) {
   case Mode::Manual: return "MANUAL";
+  case Mode::Approach: return "APPROACH";
   case Mode::Orient: return "ORIENT";
   case Mode::CenterSeek: return "CENTER_X:seek";
   case Mode::CenterReturn: return "CENTER_X:return";
+  case Mode::Backtrack: return "BACKTRACK";
   case Mode::Centered: return "CENTERED";
   }
   return "?";

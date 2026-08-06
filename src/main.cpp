@@ -31,10 +31,16 @@ using namespace tb;
 ArduinoClock g_clock;
 
 // Four wheels. EN/BRK/ALARM are ganged, so every motor gets the same shared pins.
-Bld120aMotor g_fl(pins::kWheelSV[0], pins::kWheelPwmCh[0], pins::kWheelFR[0], pins::kWheelEN, pins::kWheelBRK, pins::kWheelALARM);
-Bld120aMotor g_fr(pins::kWheelSV[1], pins::kWheelPwmCh[1], pins::kWheelFR[1], pins::kWheelEN, pins::kWheelBRK, pins::kWheelALARM);
-Bld120aMotor g_rl(pins::kWheelSV[2], pins::kWheelPwmCh[2], pins::kWheelFR[2], pins::kWheelEN, pins::kWheelBRK, pins::kWheelALARM);
-Bld120aMotor g_rr(pins::kWheelSV[3], pins::kWheelPwmCh[3], pins::kWheelFR[3], pins::kWheelEN, pins::kWheelBRK, pins::kWheelALARM);
+// EN/BRK are PER-WHEEL on the fabricated board, not ganged as originally
+// designed — each motor gets its own pair from the netlist-derived table.
+Bld120aMotor g_fl(pins::kWheelSV[0], pins::kWheelPwmCh[0], pins::kWheelFR[0],
+                  pins::kWheelEN[0], pins::kWheelBRK[0], pins::kWheelALARM);
+Bld120aMotor g_fr(pins::kWheelSV[1], pins::kWheelPwmCh[1], pins::kWheelFR[1],
+                  pins::kWheelEN[1], pins::kWheelBRK[1], pins::kWheelALARM);
+Bld120aMotor g_rl(pins::kWheelSV[2], pins::kWheelPwmCh[2], pins::kWheelFR[2],
+                  pins::kWheelEN[2], pins::kWheelBRK[2], pins::kWheelALARM);
+Bld120aMotor g_rr(pins::kWheelSV[3], pins::kWheelPwmCh[3], pins::kWheelFR[3],
+                  pins::kWheelEN[3], pins::kWheelBRK[3], pins::kWheelALARM);
 MecanumDrive g_drive(g_fl, g_fr, g_rl, g_rr);
 
 Bts7960Clamp g_clamp(pins::kClampRPWM, pins::kClampRPWMCh, pins::kClampLPWM, pins::kClampLPWMCh,
@@ -59,14 +65,18 @@ static FaultFlags readFaults() {
   FaultFlags f;
   f.motor_alarm = g_drive.fault();
   f.clamp_overcurrent = g_clamp.currentAmps() > cfg::kClampStallAmps;
-  f.estop = digitalRead(pins::kEstop) == LOW;  // active-low button
+  // The Wheel Drive PCB has no E-stop input; it belongs to the hardware loop and
+  // ESP-ARM. Reporting false is honest — but it means SOFTWARE CANNOT SEE THE
+  // E-STOP on this board, so the hardware loop must cut motor power directly.
+  f.estop = (pins::kEstop == pins::kNoPin) ? false
+                                           : (digitalRead(pins::kEstop) == LOW);
   return f;
 }
 
 void setup() {
   Serial.begin(115200);
   Wire.begin(pins::kI2C_SDA, pins::kI2C_SCL);
-  pinMode(pins::kEstop, INPUT_PULLUP);
+  if (pins::kEstop != pins::kNoPin) pinMode(pins::kEstop, INPUT_PULLUP);
 
   g_fl.begin();
   g_fr.begin();
@@ -109,7 +119,13 @@ void loop() {
 
   // ANY well-formed frame proves the Pi is alive — that is what feeds the
   // watchdog, not just PING. A stream of DOCK/STATUS keeps the link healthy too.
-  if (cmd != Command::None) g_link.feed(now);
+  //
+  // EXCEPT Resume. resume() refuses unless the link is *already* carrying fresh
+  // traffic; if the RESUME frame fed the watchdog first it would certify its own
+  // freshness and the check could never fail. That would let a RESUME sitting in
+  // the RX buffer from before a dropout clear the latch and re-enable the motors
+  // on its own — precisely what the latch exists to prevent.
+  if (cmd != Command::None && cmd != Command::Resume) g_link.feed(now);
 
   switch (cmd) {
     case Command::None:
@@ -129,7 +145,16 @@ void loop() {
       }
       break;
     default:
-      g_sm.handleCommand(cmd);
+      // GATED. DockingStateMachine::handleCommand actuates hardware directly —
+      // Abort and Dock both do drive_.brake(false) + drive_.enable(true), and
+      // Abort also clears the E-stop latch. Ungated, an ABORT arriving while the
+      // link was latched LOST would release the brakes and enable all four
+      // drivers, which is exactly what safeStop() exists to prevent.
+      if (g_link.motionAllowed()) {
+        g_sm.handleCommand(cmd);
+      } else {
+        g_telemetry.log("command ignored — link down (send RESUME first)");
+      }
       break;
   }
 

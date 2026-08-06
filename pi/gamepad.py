@@ -33,6 +33,16 @@ except ImportError:  # keeps the module importable on the Mac for testing
 
 DEADZONE = 0.12          # from bench_ble/main/sketch.cpp — do not change casually
 
+# A Bluetooth pad going out of range, or having its battery pulled, does NOT
+# raise from evdev until BlueZ tears the input node down -- seconds later. Until
+# then the last stick values sit in the buffer and would keep being mixed and
+# sent at 50 Hz, at whatever deflection they were last at. The ESP's own watchdog
+# does NOT catch this: frames ARE arriving, they are just stale.
+#
+# A healthy pad emits events at least every few tens of ms, so silence this long
+# means it is gone.
+STALE_S = 0.25
+
 
 @dataclass
 class Command:
@@ -115,6 +125,11 @@ class Gamepad:
         vx = -ax(ecodes.ABS_Y)          # up = forward
         vy = -ax(ecodes.ABS_X)          # stick right -> strafe right = vy negative
         omega = -ax(ecodes.ABS_RX)      # stick right -> rotate CW  = omega negative
+
+        # Treat silence as a disconnect, not as "hold the last command".
+        fresh = (time.monotonic() - self.last_event) < STALE_S
+        if not fresh:
+            return Command(connected=False)
 
         return Command(
             vx=vx, vy=vy, omega=omega,

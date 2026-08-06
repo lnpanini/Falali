@@ -165,6 +165,48 @@ void test_can_trip_again_after_resume() {
   TEST_ASSERT_FALSE(w.motionAllowed());
 }
 
+// --- the call ORDER main.cpp actually uses ---------------------------------
+//
+// The tests above call resume() in isolation. main.cpp feeds the watchdog on any
+// inbound frame and THEN dispatches it, so a RESUME could certify its own
+// freshness and make the guard unreachable. These pin the real sequence.
+
+// Mirrors main.cpp: every frame except Resume feeds the watchdog first.
+static void deliverFrame(LinkWatchdog& w, bool is_resume, uint32_t t, bool* resumed) {
+  if (!is_resume) w.feed(t);
+  if (is_resume && resumed) *resumed = w.resume(t);
+}
+
+void test_buffered_resume_after_dropout_is_refused() {
+  // THE FAILURE: a RESUME sits in the ESP's RX buffer from BEFORE a dropout — a
+  // hung I2C read stalls the loop long enough to trip the watchdog — and is only
+  // parsed afterwards. If it fed the watchdog before resume() checked freshness,
+  // it would clear the latch and re-enable the motors with no operator involved.
+  LinkWatchdog w(cfg(100));
+  deliverFrame(w, false, 0, nullptr);      // healthy traffic
+  TEST_ASSERT_TRUE(w.update(500));         // loop stalled -> LOST
+  TEST_ASSERT_FALSE(w.motionAllowed());
+
+  bool resumed = true;
+  deliverFrame(w, true, 500, &resumed);    // the stale RESUME is finally parsed
+  TEST_ASSERT_FALSE(resumed);              // must be REFUSED
+  TEST_ASSERT_FALSE(w.motionAllowed());
+}
+
+void test_resume_accepted_when_real_traffic_precedes_it() {
+  // The legitimate case must still work: the Pi comes back, sends heartbeats,
+  // and only then a RESUME.
+  LinkWatchdog w(cfg(100));
+  deliverFrame(w, false, 0, nullptr);
+  TEST_ASSERT_TRUE(w.update(500));
+
+  deliverFrame(w, false, 600, nullptr);    // PING — genuine fresh traffic
+  bool resumed = false;
+  deliverFrame(w, true, 620, &resumed);    // RESUME within the window
+  TEST_ASSERT_TRUE(resumed);
+  TEST_ASSERT_TRUE(w.motionAllowed());
+}
+
 // --- millis() rollover -----------------------------------------------------
 
 void test_no_false_trip_across_millis_rollover() {
@@ -213,6 +255,8 @@ int main(int, char**) {
   RUN_TEST(test_resume_refused_before_any_frame);
   RUN_TEST(test_resume_is_noop_when_healthy);
   RUN_TEST(test_can_trip_again_after_resume);
+  RUN_TEST(test_buffered_resume_after_dropout_is_refused);
+  RUN_TEST(test_resume_accepted_when_real_traffic_precedes_it);
   RUN_TEST(test_no_false_trip_across_millis_rollover);
   RUN_TEST(test_trips_correctly_across_millis_rollover);
   RUN_TEST(test_age_correct_across_rollover);

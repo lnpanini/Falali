@@ -14,7 +14,13 @@ public:
   GpioLimitSwitches(uint8_t open_pin, uint8_t closed_pin, uint16_t debounce_ms = 10)
       : open_pin_(open_pin), closed_pin_(closed_pin), debounce_ms_(debounce_ms) {}
 
+  // kNoPin => not wired on this board (limit switches are ESP-ARM's).
+  bool present() const {
+    return open_pin_ != 0xFF && closed_pin_ != 0xFF;
+  }
+
   void begin() {
+    if (!present()) return;
     open_.attach(open_pin_, INPUT_PULLUP);
     open_.interval(debounce_ms_);
     closed_.attach(closed_pin_, INPUT_PULLUP);
@@ -22,6 +28,7 @@ public:
   }
 
   void update() override {
+    if (!present()) return;   // states stay false: "travel not confirmed"
     open_.update();
     closed_.update();
     open_state_ = (open_.read() == LOW);

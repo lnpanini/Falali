@@ -29,6 +29,14 @@
 
 namespace tb {
 
+// VERIFIED TRUE 2026-08-05: the transistor adapters are built and the full chain
+// (Mac -> ESP32-S3 -> adapter -> BLD-120A -> motor) runs. See
+// docs/superpowers/plans/2026-08-05-s3-bench-test-handoff.md.
+//
+// Setting this FALSE while adapters are fitted inverts every safety polarity:
+// kAssert becomes LOW, so enable(false) writes HIGH, turns the NPN on, pulls EN
+// to COM and ENABLES the drivetrain. Every safeStop() would start the motors.
+//
 // TRUE  = EN/BRK/F-R go through an N-MOSFET level/isolation stage (the salvage
 //         adapter on the wheel PCB). GPIO HIGH turns the MOSFET on, which pulls
 //         the driver input down to COM = ASSERTED. Every control line therefore
@@ -38,13 +46,13 @@ namespace tb {
 // Getting this wrong swaps "enable" and "disable" on a live drivetrain, so it is
 // a single switch rather than four scattered polarity constants.
 //
-// CURRENTLY FALSE — no adapter is built, so this matches the hardware on the
-// bench today. Flip to true the moment the adapters go in.
+// NOW TRUE: the adapters are fitted and the drivetrain runs through them.
 //
-// Whether they are needed at all rests on ONE unmeasured number: the idle voltage
-// of EN->COM with 24 V applied and nothing connected.
-//   >= 5 V  -> out of spec for the non-5V-tolerant S3, adapters required
-//   <= 3.3 V -> harmless, wire direct, delete the adapters entirely
+// UNRESOLVED CONTRADICTION in the bench data below — worth settling before the
+// robot build. The unpowered diode test read OL both ways, implying no opto; a
+// later powered test read 2.20 V / 1.886 V across EN->COM, which conducts. Both
+// cannot be right. It does not change this constant (the adapters are in and
+// work either way) but it does change whether they were ever strictly required.
 //
 // Bench evidence so far (2026-08-05): diode test EN->COM and SV->COM read OL in
 // BOTH directions with the driver unpowered, so there are NO optocouplers on the
@@ -53,7 +61,7 @@ namespace tb {
 // gave 0.642 V, i.e. an internal pull-up around 10 kOhm and only a few hundred
 // microamps of drive current. A 10 kOhm resistor reads OL in diode mode, which is
 // consistent. The rail that pull-up returns to is the open question.
-constexpr bool kControlViaMosfet = false;
+constexpr bool kControlViaMosfet = true;
 
 // With a MOSFET the GPIO drives a gate, never the 5 V node -> push-pull is correct
 // and open-drain would never turn the MOSFET on (the gate pulldown would win).

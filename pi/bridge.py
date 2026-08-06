@@ -106,9 +106,15 @@ class Bridge:
     def command_stop(self) -> None:
         """Brake and drop enable on both ESPs. Safe to call repeatedly."""
         if STAGE == 1:
-            # Stage 1: the firmware speaks bare line commands and the watchdog is
-            # doing the stopping. ABORT is the strongest thing it understands.
-            self.base.send_line("ABORT")
+            # Do NOT send ABORT here. On the firmware side Command::Abort runs
+            # DockingStateMachine::handleCommand, which does brake(false) +
+            # enable(true) + clearEstopLatch() -- it RE-ENABLES the drivetrain.
+            # Using it as a "stop" would mean the Pi's stop command starts the
+            # motors, and (before the fix in main.cpp) also re-fed the watchdog
+            # so it could never trip.
+            #
+            # Stopping is the ESP's job: withhold heartbeats and its own 100 ms
+            # watchdog brakes and latches. Silence is the stop signal.
             return
         self.base.send({"cmd": "DRIVE", "w": [0.0, 0.0, 0.0, 0.0], "en": False, "brk": True})
         self.arm.send({"cmd": "STOP"})

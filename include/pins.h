@@ -52,6 +52,31 @@ constexpr uint8_t kWheelBRK[4] = {39, 38, 15, 13};  // brake   (per wheel)
 // speed back. Do not run the drivetrain unattended before then.
 constexpr uint8_t kWheelALARM = kNoPin;
 
+// --- CLAMP / LIMIT SWITCHES / E-STOP — NOT ON THIS BOARD ---
+//
+// The Wheel Drive PCB is wheels + sensors only; the netlist has no connector for
+// any of these. Per the Pi-5 architecture the clamp belongs to ESP-ARM, which is
+// not built yet.
+//
+// They are kNoPin rather than absent so main.cpp still compiles as the one-ESP
+// firmware. The HAL adapters no-op on kNoPin, so nothing can be actuated.
+//
+// *** DO NOT restore the pre-PCB values (11/12/13, 1/2, 14/21, 47). ***
+// On the fabricated board every one of those is now a wheel or encoder signal:
+//   GPIO11=RR F/R  12=RR EN  13=RR BRK  1/2=Encoder FL/FR  14=Encoder RR
+//   GPIO21=FR SV   47=FR F/R
+// The clamp would fight the rear-right wheel.
+constexpr uint8_t kClampRPWM     = kNoPin;
+constexpr uint8_t kClampLPWM     = kNoPin;
+constexpr uint8_t kClampEN       = kNoPin;
+constexpr uint8_t kClampIS_Close = kNoPin;
+constexpr uint8_t kClampIS_Open  = kNoPin;
+constexpr uint8_t kLimitOpen     = kNoPin;
+constexpr uint8_t kLimitClosed   = kNoPin;
+constexpr uint8_t kEstop         = kNoPin;
+constexpr uint8_t kClampRPWMCh   = 4;   // LEDC channels, unused while kNoPin
+constexpr uint8_t kClampLPWMCh   = 5;
+
 // --- ToF: 4× VL53L0X, individual XSHUT for address re-assignment ---
 // All four share the I2C bus at 0x29 and are brought up one at a time via XSHUT,
 // which is exactly what lib/hal_esp32/Vl53l0xArray.h implements. No mux needed.

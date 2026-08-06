@@ -13,6 +13,7 @@
 #include "CornerEdgeDetector.h"
 #include "DeadReckonOdometry.h"
 #include "DockingStateMachine.h"
+#include "LinkWatchdog.h"
 #include "MecanumDrive.h"
 #include "SafetyMonitor.h"
 
@@ -48,6 +49,7 @@ DeadReckonOdometry g_odom(cfg::makeOdometryCal());
 SafetyMonitor g_safety;
 DockingStateMachine g_sm(g_drive, g_clamp, g_limits, g_odom, g_safety, g_clock,
                          cfg::makeDockConfig());
+LinkWatchdog g_link(cfg::makeLinkConfig());
 
 uint32_t g_last_control = 0;
 uint32_t g_last_telem = 0;
@@ -74,11 +76,28 @@ void setup() {
   g_limits.begin();
   g_telemetry.begin();
 
-  g_drive.brake(false);
-  g_drive.enable(true);
+  // Boot BRAKED and DISABLED. The drivetrain is armed only once the Pi has proved
+  // it is there — LinkWatchdog starts in NEVER_SEEN, so the first control tick
+  // calls safeStop() anyway; doing it here too closes the window between the
+  // driver powering up and that first tick.
+  g_drive.stop();
+  g_drive.brake(true);
+  g_drive.enable(false);
 
   if (!g_tof.begin()) g_telemetry.log("ToF init failed — check wiring/mux");
-  g_telemetry.log("TrolleyBot ready. Commands: DOCK ABORT UNCLAMP STATUS");
+  g_telemetry.log("TrolleyBot ready. Commands: DOCK ABORT UNCLAMP STATUS PING RESUME");
+  g_telemetry.log("drivetrain disabled until the control link is up (send PING)");
+}
+
+// Everything off, right now. Called on the link-lost edge and every tick after it.
+//
+// Deliberately NOT Command::Abort: abort re-enables the drivetrain so an operator
+// can immediately drive again, which is the opposite of what a dead link wants.
+static void safeStop() {
+  g_drive.stop();
+  g_drive.brake(true);
+  g_drive.enable(false);
+  g_clamp.stop();
 }
 
 void loop() {
@@ -87,11 +106,41 @@ void loop() {
   // Always service serial so ABORT is responsive.
   g_telemetry.pump();
   const Command cmd = g_telemetry.poll();
-  if (cmd != Command::None) g_sm.handleCommand(cmd);
+
+  // ANY well-formed frame proves the Pi is alive — that is what feeds the
+  // watchdog, not just PING. A stream of DOCK/STATUS keeps the link healthy too.
+  if (cmd != Command::None) g_link.feed(now);
+
+  switch (cmd) {
+    case Command::None:
+      break;
+    case Command::Heartbeat:
+      break;  // the feed() above was the entire point
+    case Command::Resume:
+      // Refused unless the link is genuinely carrying fresh traffic.
+      if (g_link.resume(now)) {
+        // Force the sequence back to Idle: the Pi must re-issue DOCK, having
+        // re-read the world. Silently continuing a half-finished dock against a
+        // stale picture is exactly the failure the latch exists to prevent.
+        g_sm.handleCommand(Command::Abort);
+        g_telemetry.log("link resumed — state machine reset to IDLE, re-issue DOCK");
+      } else {
+        g_telemetry.log("RESUME refused — link not healthy");
+      }
+      break;
+    default:
+      g_sm.handleCommand(cmd);
+      break;
+  }
 
   // Fixed-rate control tick.
   if (now - g_last_control >= cfg::kControlPeriodMs) {
     g_last_control = now;
+
+    if (g_link.update(now)) {  // fires once, on the transition into LOST
+      g_telemetry.log("LINK LOST — braking and latching. Send RESUME to recover.");
+    }
+
     g_limits.update();
     g_edge.update(g_tof.read());
 
@@ -100,7 +149,14 @@ void loop() {
 
     // Refresh the gate BEFORE the state machine ticks. The SM drives odometry itself.
     g_safety.update(g_sm.alignmentConfirmed(), readFaults());
-    g_sm.update(present);
+
+    // The watchdog outranks the state machine. While the link is down the SM is
+    // not ticked at all, so it cannot command motion however it feels about it.
+    if (g_link.motionAllowed()) {
+      g_sm.update(present);
+    } else {
+      safeStop();
+    }
   }
 
   // Periodic status publish (and an immediate reply to a STATUS command).
@@ -109,6 +165,6 @@ void loop() {
     bool present[cfg::kNumZones];
     for (size_t i = 0; i < cfg::kNumZones; ++i) present[i] = g_edge.present(i);
     g_telemetry.publish(g_sm.stateName(), present, cfg::kNumZones, g_odom.pose(),
-                        g_sm.alignmentConfirmed(), readFaults());
+                        g_sm.alignmentConfirmed(), readFaults(), g_link.healthName());
   }
 }

@@ -13,12 +13,14 @@ namespace tb {
 class FakeTelemetry : public ITelemetry {
 public:
   void publish(const char* state, const bool* corner_present, size_t n_corners,
-               const Pose2D& pose, bool confirmed, const FaultFlags& faults) override {
+               const Pose2D& pose, bool confirmed, const FaultFlags& faults,
+               const char* link) override {
     last_state_ = state ? state : "";
     for (size_t i = 0; i < n_corners && i < kNumCorners; ++i) last_present_[i] = corner_present[i];
     last_pose_ = pose;
     last_confirmed_ = confirmed;
     last_faults_ = faults;
+    last_link_ = link ? link : "";
     ++publish_count_;
   }
   void log(const char* msg) override { logs_.push_back(msg ? msg : ""); }
@@ -33,6 +35,7 @@ public:
   // Test injection / inspection.
   void queueCommand(Command c) { commands_.push_back(c); }
   const std::string& lastState() const { return last_state_; }
+  const std::string& lastLink() const { return last_link_; }
   bool lastConfirmed() const { return last_confirmed_; }
   int publishCount() const { return publish_count_; }
   const std::vector<std::string>& logs() const { return logs_; }
@@ -44,6 +47,7 @@ private:
   Pose2D last_pose_{};
   bool last_confirmed_ = false;
   FaultFlags last_faults_{};
+  std::string last_link_;
   int publish_count_ = 0;
   std::vector<std::string> logs_;
 };

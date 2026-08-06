@@ -7,6 +7,7 @@
 #include "CornerEdgeDetector.h"
 #include "DeadReckonOdometry.h"
 #include "DockingStateMachine.h"
+#include "LinkWatchdog.h"
 
 namespace cfg {
 
@@ -44,6 +45,15 @@ inline tb::OdometryCal makeOdometryCal() {
 // Docking sequence tuning (struct defaults are sane; override here as needed).
 inline tb::DockingConfig makeDockConfig() {
   tb::DockingConfig c;
+  return c;
+}
+
+// Pi 5 control-link watchdog. 100 ms == 5 missed control ticks: long enough to
+// ride out ordinary Linux scheduling jitter, short enough that the platform
+// travels only ~30 mm at full speed before the brakes go on.
+inline tb::LinkConfig makeLinkConfig() {
+  tb::LinkConfig c;
+  c.timeout_ms = 100;
   return c;
 }
 

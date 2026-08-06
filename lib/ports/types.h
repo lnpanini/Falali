@@ -49,7 +49,12 @@ struct FaultFlags {
 };
 
 // High-level operator commands (parsed from serial by the telemetry adapter).
-enum class Command : uint8_t { None, Dock, Abort, Unclamp, Status };
+//
+// Heartbeat and Resume serve the Pi 5 control link rather than the operator:
+// Heartbeat is the "I am still here" frame that feeds LinkWatchdog, and Resume
+// clears a latched LINK_LOST. Both are handled at the composition root and never
+// reach the docking state machine.
+enum class Command : uint8_t { None, Dock, Abort, Unclamp, Status, Heartbeat, Resume };
 
 // Clamp actuation intent.
 enum class ClampAction : uint8_t { Stop, Open, Close };

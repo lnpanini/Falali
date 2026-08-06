@@ -11,8 +11,11 @@ struct ITelemetry {
   virtual ~ITelemetry() = default;
 
   // Emit a status snapshot (adapter decides the format).
+  // `link` is the control-link health name (see LinkWatchdog::healthName) — the Pi
+  // needs to see the ESP's own view of the link, not just infer it from silence.
   virtual void publish(const char* state, const bool* corner_present, size_t n_corners,
-                       const Pose2D& pose, bool confirmed, const FaultFlags& faults) = 0;
+                       const Pose2D& pose, bool confirmed, const FaultFlags& faults,
+                       const char* link) = 0;
 
   // Emit a human-readable log line.
   virtual void log(const char* msg) = 0;

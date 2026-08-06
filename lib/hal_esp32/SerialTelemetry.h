@@ -15,7 +15,8 @@ public:
   void pump();
 
   void publish(const char* state, const bool* corner_present, size_t n_corners,
-               const Pose2D& pose, bool confirmed, const FaultFlags& faults) override;
+               const Pose2D& pose, bool confirmed, const FaultFlags& faults,
+               const char* link) override;
   void log(const char* msg) override;
   Command poll() override;
 };

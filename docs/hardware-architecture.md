@@ -330,3 +330,60 @@ the DevKitC socket, J3 and the standoffs.
 - [ ] ACS758LCB-**050B** confirmed as the right part (§6); still to confirm the
       supply rail is 3.3 V and set ADS1115 ADDR→GND for `0x48`.
 - [ ] Confirm the motor's rated watts, to set P-sv.
+
+---
+
+## Bring-up gotchas that cost real time (2026-08-06)
+
+Two failures that both presented as something other than what they were. Both
+are worth reading before debugging a silent or dead board.
+
+### 1. Missing ESP-to-PSU ground presented as a GPIO0 strapping fault
+
+**Symptom:** the ESP booted `rst:0x15,boot:0x3 (DOWNLOAD(USB/UART0))` on every
+reset, so the application never ran. Uploads worked without touching BOOT, which
+is itself the tell — a board that always boots to download never needs the button.
+
+**Cause:** the ESP had no ground connection to the motor PSU. With no shared
+reference, GPIO0 had nothing sane to sit at and read low at reset.
+
+**Why it misleads:** everything points at GPIO0. The netlist leaves that pin
+unconnected, so the obvious conclusion is a solder bridge, and you go looking for
+copper faults. The isolating test is the fast one: lift the module off the PCB
+and reset it standalone. `0x8` off the board and `0x3` on it localises the fault
+to the board in one move.
+
+**Boot modes worth memorising:**
+
+| Code | Meaning |
+|---|---|
+| `boot:0x8 (SPI_FAST_FLASH_BOOT)` | normal — the app is running |
+| `boot:0x3 (DOWNLOAD(USB/UART0))` | GPIO0 was low at reset; app never runs |
+
+### 2. HWCDC blocks forever if the host stops reading
+
+**Symptom:** the board goes permanently silent — no banner, no command response,
+and esptool fails with `No serial data received`. Only a physical USB replug
+clears it. Looks exactly like dead firmware or a dead board.
+
+**Cause:** with `ARDUINO_USB_MODE=1`, `Serial` is HWCDC, which **blocks** when its
+TX buffer fills and no host is draining it. Any sketch that prints unprompted
+(a heartbeat, periodic telemetry) will fill that buffer the moment the terminal
+closes, then hang inside `Serial.printf`.
+
+**Fix, and it belongs in every S3 sketch that prints unprompted:**
+
+```cpp
+Serial.setTxTimeoutMs(0);   // never block; discard instead
+```
+
+Losing output to a terminal that is not attached is always the right trade
+against wedging the controller. This is the same principle as `LinkWatchdog`,
+one layer down: a peer that stops listening must never be able to stall us.
+
+### 3. DTR is the IO0 strap on USB-Serial-JTAG
+
+When scripting the serial port on an ESP32-S3, open it with **DTR and RTS LOW**.
+Asserting DTR is esptool's "set IO0" step and forces the chip into download mode.
+A probe that sets `dtr=True` will put the board into the bootloader and then
+report it as silent — a self-inflicted fault that reads as a hardware one.

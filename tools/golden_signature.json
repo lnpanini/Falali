@@ -1,0 +1,98 @@
+{
+  "FL.BRK": {
+    "bridged": "",
+    "dn": 0,
+    "gpio": 39,
+    "up": 1
+  },
+  "FL.EN": {
+    "bridged": "",
+    "dn": 0,
+    "gpio": 40,
+    "up": 1
+  },
+  "FL.F/R": {
+    "bridged": "",
+    "dn": 0,
+    "gpio": 41,
+    "up": 1
+  },
+  "FL.SV": {
+    "bridged": "",
+    "dn": 0,
+    "gpio": 42,
+    "up": 1
+  },
+  "FR.BRK": {
+    "bridged": "",
+    "dn": 0,
+    "gpio": 38,
+    "up": 1
+  },
+  "FR.EN": {
+    "bridged": "",
+    "dn": 0,
+    "gpio": 48,
+    "up": 1
+  },
+  "FR.F/R": {
+    "bridged": "",
+    "dn": 0,
+    "gpio": 47,
+    "up": 1
+  },
+  "FR.SV": {
+    "bridged": "",
+    "dn": 0,
+    "gpio": 21,
+    "up": 1
+  },
+  "RL.BRK": {
+    "bridged": "",
+    "dn": 0,
+    "gpio": 15,
+    "up": 0
+  },
+  "RL.EN": {
+    "bridged": "",
+    "dn": 0,
+    "gpio": 16,
+    "up": 0
+  },
+  "RL.F/R": {
+    "bridged": "",
+    "dn": 0,
+    "gpio": 17,
+    "up": 0
+  },
+  "RL.SV": {
+    "bridged": "",
+    "dn": 0,
+    "gpio": 18,
+    "up": 1
+  },
+  "RR.BRK": {
+    "bridged": "",
+    "dn": 0,
+    "gpio": 13,
+    "up": 1
+  },
+  "RR.EN": {
+    "bridged": "",
+    "dn": 0,
+    "gpio": 12,
+    "up": 1
+  },
+  "RR.F/R": {
+    "bridged": "",
+    "dn": 0,
+    "gpio": 11,
+    "up": 1
+  },
+  "RR.SV": {
+    "bridged": "",
+    "dn": 0,
+    "gpio": 10,
+    "up": 1
+  }
+}

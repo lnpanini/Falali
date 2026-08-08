@@ -77,19 +77,33 @@ public:
       : sv_(sv), sv_ch_(sv_channel), dir_(dir), en_(en), brk_(brk), alarm_(alarm) {}
 
   void begin() {
-    // Set the level BEFORE switching the pin to an output. pinMode(OUTPUT) drives
-    // whatever is already in the output latch, which resets to 0 — and 0 on an
-    // active-low EN means ENABLED. Writing first closes that window; the previous
-    // version of this file left it open and was saved only by BRK happening to
-    // default to asserted at the same instant.
-    digitalWrite(en_, kRelease);   // released -> disabled
-    digitalWrite(brk_, kRelease);  // released -> brake off
-    digitalWrite(dir_, kForward);
-
+    // pinMode FIRST, then the level.
+    //
+    // This file used to do the opposite, on the theory that pinMode(OUTPUT)
+    // drives whatever is already in the latch and so the level had to be set
+    // first to close a boot-time window. That is NOT how Arduino-ESP32 3.x
+    // behaves: a digitalWrite to a pin that has not been configured yet is
+    // rejected outright and logged as
+    //     "IO nn is not set as GPIO. Execute digitalMode(nn, OUTPUT) first."
+    // (observed on hardware 2026-08-06 during RL bring-up). The pre-writes were
+    // silently discarded, so the window was never actually closed.
+    //
+    // What keeps boot safe is the adapter polarity, not the ordering: the latch
+    // resets to 0 = LOW, and with the inverting transistor stage LOW = RELEASED
+    // = driver disabled. The safe state IS the power-on default.
+    //
+    // *** If kControlViaMosfet ever goes back to false, this is no longer true.
+    // *** LOW would then mean ASSERTED, and every driver would enable itself
+    // *** between reset and the first digitalWrite below. Re-derive boot safety
+    // *** before making that change — do not assume this ordering protects you.
     const uint8_t mode = kPushPullControl ? OUTPUT : OUTPUT_OPEN_DRAIN;
     pinMode(en_, mode);
     pinMode(brk_, mode);
     pinMode(dir_, mode);
+
+    digitalWrite(en_, kRelease);   // released -> disabled
+    digitalWrite(brk_, kRelease);  // released -> brake off
+    digitalWrite(dir_, kForward);
 
     if (alarm_ != pins::kNoPin) pinMode(alarm_, INPUT_PULLUP);
 

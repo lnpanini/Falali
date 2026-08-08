@@ -1,0 +1,10 @@
+time,board,boot,result,note
+2026-08-08T21:56:51,2,0x8 (SPI_FAST_FLASH_BOOT),FAIL,reverse only -- needs invert
+2026-08-08T21:59:35,1,0x8 (SPI_FAST_FLASH_BOOT),PASS,both directions
+2026-08-08T22:00:34,3,0x8 (SPI_FAST_FLASH_BOOT),FAIL,no motion -- check RV pot fully CCW and 24 V at the driver
+2026-08-08T22:02:09,4,0x8 (SPI_FAST_FLASH_BOOT),FAIL,reverse only -- needs invert
+2026-08-08T22:04:04,4,0x8 (SPI_FAST_FLASH_BOOT),PASS,both directions
+2026-08-08T22:28:41,1,0x8 (SPI_FAST_FLASH_BOOT),PASS,both directions
+2026-08-08T23:28:33,1,0x8 (SPI_FAST_FLASH_BOOT),PASS,both directions
+2026-08-08T23:29:08,2,0x8 (SPI_FAST_FLASH_BOOT),ERROR,signal scan returned no rows (0 bytes)
+2026-08-08T23:30:19,2,(no ROM banner),ERROR,signal scan returned no rows (0 bytes)

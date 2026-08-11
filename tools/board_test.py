@@ -6,6 +6,7 @@ what you saw, and writes a CSV so the result survives the bench session.
 
     pio run -e pcb_rl -t upload        # once, onto the module you'll swap around
     python3 tools/board_test.py
+    python3 tools/board_test.py --scan # ...and also run the 16-line signal scan
 
 Per board it:
   1. waits for the USB port to appear,
@@ -44,6 +45,16 @@ BAUD = 115200
 LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "board_test_log.csv")
 SELFTEST_S = 26          # the 't' sequence takes ~16 s; leave headroom
 BOOT_WAIT_S = 5
+
+# The signal scan is OFF by default: pass --scan to run it.
+#
+# It only ever saw the ESP side of each net -- pin, trace, adapter input -- and
+# by construction it CANNOT detect an open trace, which is the defect a
+# fabricated board is most likely to have. Spinning the motor exercises the
+# whole chain instead: ESP, adapter, header, driver, motor. The scan is kept
+# because it does still find shorts and bridges cheaply, but it is no longer in
+# the default path.
+SCAN = "--scan" in sys.argv
 
 
 def find_port(timeout=90):
@@ -185,13 +196,86 @@ def test_one(board_id, _attempt=1):
         return dict(board=board_id, boot="SILENT", result="ERROR",
                     note="no serial output; USB session wedged")
 
-    if mode.startswith("0x3"):
+    # ANY download-mode boot means the app never ran, not just 0x3. A BOOT jumper
+    # left in place after flashing gives 0x0 (DOWNLOAD(USB/UART0)), which used to
+    # sail past this check and then present as a silent board -- exactly the
+    # failure this guard exists to name. 2026-08-09.
+    if "DOWNLOAD" in mode.upper() or mode.startswith(("0x0", "0x3")):
         p.close()
-        print("\n  *** FAIL: chip booted into DOWNLOAD mode -- the app never ran.")
-        print("  *** GPIO0 is low at reset. Check the ESP<->PSU ground first,")
-        print("  *** then GPIO0 continuity to GND with the board unpowered.")
-        return dict(board=board_id, boot=mode, result="FAIL", note="boot 0x3, GPIO0 low")
+        print(f"\n  *** FAIL: chip booted into DOWNLOAD mode ({mode}) -- the app never ran.")
+        print("  *** GPIO0 is low at reset. Check in this order:")
+        print("  ***   1. a BOOT jumper or held BOOT button still in place")
+        print("  ***   2. the ESP<->PSU ground")
+        print("  ***   3. GPIO0 continuity to GND with the board unpowered")
+        return dict(board=board_id, boot=mode, result="FAIL",
+                    note=f"boot {mode}, GPIO0 low at reset")
 
+    diffs = []
+    if SCAN:
+        diffs = run_scan(p, board_id, mode, _attempt)
+        if not isinstance(diffs, list):
+            return diffs                      # scan bailed out with a result row
+
+    # The two phases want OPPOSITE power states: the scan drives control lines
+    # individually and must not have 24 V behind them, while the motion test
+    # obviously needs the supply up. Stop and say so rather than assuming.
+    if SCAN:
+        print("\n  Scan done. NOW SWITCH THE 24 V SUPPLY ON.")
+    else:
+        print("\n  Signal scan skipped (pass --scan to run it).")
+    ans = input("  Wheels off the ground and supply on? [y] to run the motion test, "
+                "[s] to skip > ").strip().lower()
+    if ans != "y":
+        return dict(board=board_id, boot=mode, result="SKIPPED",
+                    note="motion test skipped by operator")
+
+    print("\n  --- self-test: WATCH THE WHEEL ---")
+    p.reset_input_buffer()
+    p.write(b"t")
+    p.flush()
+    pump(p, SELFTEST_S)
+    p.write(b" ")                             # explicit stop on the way out
+    p.flush()
+    time.sleep(0.5)
+    p.read(4096)
+    p.close()
+
+    # ASK WHAT WAS SEEN, NOT WHAT IT MEANS.
+    #
+    # The old prompt offered "forward only / reverse only", which conflated two
+    # unrelated faults: a wheel that spun the SAME way in both phases (F/R never
+    # changed state) and a wheel that moved in one phase and sat still in the
+    # other. The first is an open or dead F/R channel; the second is closer to an
+    # enable or supply problem. Recording them under one answer made board 4 look
+    # like it "needed an invert" when the honest reading was an intermittent
+    # connection -- it failed at 22:02 and passed at 22:04 untouched.
+    #
+    # Mounting mirror is NOT a candidate here: a mirrored motor still turns in
+    # both phases, so it answers [b]. Do not add an invert table to make a [s]
+    # or [o] board pass; that hides a defect the customer would find instead.
+    print()
+    print("  The self-test drove a FORWARD ramp, then a REVERSE ramp.")
+    ans = ""
+    while ans not in ("b", "s", "o", "n"):
+        ans = input("  What did the wheel do?\n"
+                    "    [b] turned in OPPOSITE directions in the two phases  (good)\n"
+                    "    [s] turned the SAME direction in both phases         (F/R not switching)\n"
+                    "    [o] moved in ONE phase only, still in the other\n"
+                    "    [n] never moved at all\n"
+                    "  > ").strip().lower()
+    note = {"b": "both directions",
+            "s": "same direction both phases -- F/R line not switching; "
+                 "meter F/R at the driver header",
+            "o": "moved in one phase only -- check EN and 24 V at the driver",
+            "n": "no motion -- check RV pot fully CCW and 24 V at the driver"}[ans]
+    if SCAN and diffs:
+        note += f"; {len(diffs)} scan diff(s)"
+    return dict(board=board_id, boot=mode,
+                result="PASS" if ans == "b" else "FAIL", note=note)
+
+
+def run_scan(p, board_id, mode, _attempt):
+    """Optional signal scan. Returns a list of diffs, or a result dict to bail."""
     print("\n  --- signal scan: 16 wheel lines (no motor needed) ---")
     p.reset_input_buffer()
     p.write(b"s")
@@ -225,47 +309,14 @@ def test_one(board_id, _attempt=1):
         save_golden(scan)
         print(f"\n  (no golden signature yet -- saved this board as the reference:")
         print(f"   {GOLDEN}. Delete it to re-baseline.)")
+        diffs = []                            # always hand back a list
     elif diffs:
         print("\n  *** SCAN DIFFERS FROM GOLDEN BOARD:")
         for d in diffs:
             print(f"      {d}")
     else:
         print("\n  scan matches the golden board.")
-
-    # The two phases want OPPOSITE power states: the scan drives control lines
-    # individually and must not have 24 V behind them, while the motion test
-    # obviously needs the supply up. Stop and say so rather than assuming.
-    print("\n  Scan done. NOW SWITCH THE 24 V SUPPLY ON.")
-    ans = input("  Wheels off the ground and supply on? [y] to run the motion test, "
-                "[s] to skip > ").strip().lower()
-    if ans != "y":
-        return dict(board=board_id, boot=mode, result="SCAN-ONLY",
-                    note="motion test skipped; " + (
-                        "scan clean" if diffs == [] else
-                        "scan is the new golden" if diffs is None else
-                        f"{len(diffs)} scan diff(s)"))
-
-    print("\n  --- self-test: WATCH THE WHEEL ---")
-    p.reset_input_buffer()
-    p.write(b"t")
-    p.flush()
-    pump(p, SELFTEST_S)
-    p.write(b" ")                             # explicit stop on the way out
-    p.flush()
-    time.sleep(0.5)
-    p.read(4096)
-    p.close()
-
-    print()
-    ans = ""
-    while ans not in ("b", "f", "r", "n"):
-        ans = input("  Wheel turned:  [b]oth  [f]orward only  [r]everse only  [n]othing > ").strip().lower()
-    note = {"b": "both directions",
-            "f": "forward only -- needs invert",
-            "r": "reverse only -- needs invert",
-            "n": "no motion -- check RV pot fully CCW and 24 V at the driver"}[ans]
-    return dict(board=board_id, boot=mode,
-                result="PASS" if ans == "b" else "FAIL", note=note)
+    return diffs
 
 
 def main():

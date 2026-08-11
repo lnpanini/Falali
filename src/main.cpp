@@ -23,16 +23,20 @@
 #include "Bts7960Clamp.h"
 #include "GpioLimitSwitches.h"
 #include "SerialTelemetry.h"
-#include "Vl53l0xMux.h"
+#include "Ads1115CurrentSense.h"
+#include "AlignmentIndicator.h"
+#include "Bno08xImu.h"
+#include "Vl53l0xArray.h"
 
 using namespace tb;
 
 // ---- Hardware adapters -----------------------------------------------------
 ArduinoClock g_clock;
 
-// Four wheels. EN/BRK/ALARM are ganged, so every motor gets the same shared pins.
-// EN/BRK are PER-WHEEL on the fabricated board, not ganged as originally
-// designed — each motor gets its own pair from the netlist-derived table.
+// Four wheels. EN/BRK are PER-WHEEL on the fabricated board, not ganged as the
+// pre-PCB design assumed — each motor gets its own pair from the netlist-derived
+// table. ALARM is kNoPin: the BLD-120A exposes no fault output and the board has
+// no such net, so there is no hardware fault detection (see pins.h).
 Bld120aMotor g_fl(pins::kWheelSV[0], pins::kWheelPwmCh[0], pins::kWheelFR[0],
                   pins::kWheelEN[0], pins::kWheelBRK[0], pins::kWheelALARM);
 Bld120aMotor g_fr(pins::kWheelSV[1], pins::kWheelPwmCh[1], pins::kWheelFR[1],
@@ -46,8 +50,34 @@ MecanumDrive g_drive(g_fl, g_fr, g_rl, g_rr);
 Bts7960Clamp g_clamp(pins::kClampRPWM, pins::kClampRPWMCh, pins::kClampLPWM, pins::kClampLPWMCh,
                      pins::kClampEN, pins::kClampIS_Close, pins::kClampIS_Open);
 GpioLimitSwitches g_limits(pins::kLimitOpen, pins::kLimitClosed);
-Vl53l0xMux g_tof(cfg::kMuxAddr, cfg::kMuxChannels, cfg::kNumZones);
+// ToF: XSHUT re-addressing, NOT the mux.
+//
+// This was Vl53l0xMux on cfg::kMuxChannels = {0,1,2,3}. Two things were wrong
+// with that on the fabricated board. The netlist wires the four VL53L0X for
+// XSHUT sequencing on GPIO4-7 (pins::kTofXSHUT) with no mux involvement at all;
+// and channels 0-3 of the mux are the AS5600 ENCODERS, so the ToF reads were
+// aimed at the encoder branches.
+//
+// Confirmed on hardware 2026-08-11: releasing XSHUT one at a time and
+// re-addressing to 0x30..0x33 brings up all four, and covering each sensor
+// identified GPIO4=FL, GPIO5=FR, GPIO7=RR (GPIO6=RL by elimination) -- matching
+// pins.h index order exactly.
+Vl53l0xArray g_tof(pins::kTofXSHUT, cfg::kNumZones);
 SerialTelemetry g_telemetry;
+
+// BNO08x at 0x4B -- ADR strapped high on this breakout (bus scan 2026-08-11).
+// Only 3V3/GND/SDA/SCL are wired, so reports are polled and the only recovery
+// from a desync is a software reset. See Bno08xImu.h.
+Bno08xImu g_imu(0x4B);
+
+// 4x ACS758 -> ADS1115 at 0x48. Channel map verified on hardware: FL->A0,
+// FR->A1, RL->A2, RR->A3, in pins.h index order.
+Ads1115CurrentSense g_current(0x48);
+
+// No LED: GPIO48 (the DevKitC RGB) is FR's ENABLE line on this board, so the
+// indicator reports over telemetry. Pass GPIO1, GPIO2 or GPIO14 to blink a real
+// LED when one is fitted -- all three are free since the encoders moved to I2C.
+AlignmentIndicator g_align(g_telemetry, pins::kNoPin);
 
 // ---- Domain (pure) ---------------------------------------------------------
 CornerEdgeDetector g_edge(cfg::makeCornerConfig());
@@ -70,6 +100,12 @@ static FaultFlags readFaults() {
   // E-STOP on this board, so the hardware loop must cut motor power directly.
   f.estop = (pins::kEstop == pins::kNoPin) ? false
                                            : (digitalRead(pins::kEstop) == LOW);
+  // The only drivetrain fault signal this board actually has. motor_alarm above
+  // can never assert -- there is no ALARM terminal and no such net -- and with
+  // the encoders deferred there is no speed feedback either. Requires valid():
+  // a stale reading must not be able to trip the drivetrain, nor to hide a real
+  // over-current behind a frozen value.
+  f.wheel_overcurrent = g_current.valid() && g_current.peakAmps() > cfg::kWheelStallAmps;
   return f;
 }
 
@@ -94,7 +130,10 @@ void setup() {
   g_drive.brake(true);
   g_drive.enable(false);
 
-  if (!g_tof.begin()) g_telemetry.log("ToF init failed — check wiring/mux");
+  if (!g_tof.begin()) g_telemetry.log("ToF init failed — check XSHUT wiring on GPIO4-7");
+  if (!g_imu.begin()) g_telemetry.log("BNO08x init failed at 0x4B — heading unavailable");
+  if (!g_current.begin()) g_telemetry.log("ADS1115 init failed at 0x48 — NO drivetrain fault signal");
+  g_align.begin();
   g_telemetry.log("TrolleyBot ready. Commands: DOCK ABORT UNCLAMP STATUS PING RESUME");
   g_telemetry.log("drivetrain disabled until the control link is up (send PING)");
 }
@@ -168,6 +207,9 @@ void loop() {
 
     g_limits.update();
     g_edge.update(g_tof.read());
+    g_imu.update(now);
+    g_current.update(now);   // one ADC channel per tick; all four every 4 ticks
+    g_align.update(now, g_sm.alignmentConfirmed());
 
     bool present[cfg::kNumZones];
     for (size_t i = 0; i < cfg::kNumZones; ++i) present[i] = g_edge.present(i);

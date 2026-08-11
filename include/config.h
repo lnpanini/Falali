@@ -24,6 +24,18 @@ constexpr uint8_t kMuxChannels[kNumZones] = {0, 1, 2, 3};  // FL, FR, RL, RR
 // --- Clamp safety ---
 constexpr float kClampStallAmps = 4.0f;  // over-current -> fault (calibrate on bench)
 
+// Per-wheel over-current trip, from the ACS758 -> ADS1115 chain.
+//
+// The BLD-120A is rated 8 A continuous, 30 A instantaneous (<3 s). 10 A sits
+// above any legitimate running current -- the bench measured roughly 0.2 A per
+// wheel unloaded -- while staying well under the driver's own instantaneous
+// rating, so this trips on something genuinely wrong rather than on a hill.
+//
+// *** NOT CALIBRATED UNDER LOAD. *** Measured only with wheels off the ground
+// on 2026-08-11. Re-check with a loaded trolley before trusting it to protect
+// anything, and remember the sensor cannot tell a stall from a heavy load.
+constexpr float kWheelStallAmps = 10.0f;
+
 // Corner edge detection: the solid board sits within this height band above the
 // up-facing sensors. Tune on the bench.
 inline tb::CornerConfig makeCornerConfig() {

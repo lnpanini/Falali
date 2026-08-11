@@ -46,6 +46,14 @@ struct FaultFlags {
   bool motor_alarm = false;        // any BLD120A ALARM asserted (wire-OR'd)
   bool clamp_overcurrent = false;  // BTS7960 current sense above the stall limit
   bool estop = false;              // physical E-stop asserted
+  // Any wheel drawing above the trip limit, from the ACS758 -> ADS1115 chain.
+  //
+  // This is the STAND-IN for motor_alarm on the fabricated board: the BLD-120A
+  // exposes no fault output and the PCB has no ALARM net, so motor_alarm can
+  // never assert. Without encoders it is the only drivetrain fault signal that
+  // exists. It cannot identify a stall -- a stalled motor and a heavily loaded
+  // one both draw hard -- but it does catch a corner drawing unlike its peers.
+  bool wheel_overcurrent = false;
 };
 
 // High-level operator commands (parsed from serial by the telemetry adapter).

@@ -83,11 +83,40 @@ constexpr uint8_t kClampLPWMCh   = 5;
 // --- ToF: 4× VL53L0X, individual XSHUT for address re-assignment ---
 // All four share the I2C bus at 0x29 and are brought up one at a time via XSHUT,
 // which is exactly what lib/hal_esp32/Vl53l0xArray.h implements. No mux needed.
+//
+// *** THE SILKSCREEN LABELS ARE NOT THE GPIO NUMBERS. ***
+// On the fabricated board the ToF connectors are labelled 4, 6, 7, 8, and those
+// are FL, FR, RL, RR in that order (Bryan, on the assembled base 2026-08-13).
+// The GPIOs behind them are 4, 5, 6, 7 -- so only the first label matches its
+// pin, and label "8" is GPIO7. GPIO8 is kI2C_SDA below and can never be an
+// XSHUT: pulling it low during Vl53l0xArray::begin()'s sequencing would take
+// the whole I2C bus down, ToF and IMU and ADS together.
+//
+//   silkscreen   4     6     7     8
+//   corner       FL    FR    RL    RR
+//   XSHUT GPIO   4     5     6     7
 constexpr uint8_t kTofXSHUT[4] = {4, 5, 6, 7};      // FL, FR, RL, RR
 
 // --- Shared I2C bus: ToF + encoders + IMU + current-sense ADC ---
 constexpr uint8_t kI2C_SDA = 8;
 constexpr uint8_t kI2C_SCL = 9;
+
+// --- 4x ACS758 -> ADS1115 at 0x48: which connector feeds which ADC channel ---
+//
+// Two independent facts that happen to agree, which is the only reason to trust
+// either. Derived by spinning one wheel at a time and watching which channel
+// moved (pcb_identify.cpp, 2026-08-11), and separately read off the silkscreen
+// (Bryan, 2026-08-13):
+//
+//   connector    J14   J17   J12   J9
+//   corner       FL    FR    RL    RR
+//   ADS channel  A0    A1    A2    A3
+//
+// The connector designators are NOT in numeric order across the corners, so
+// never infer a channel from a J-number -- read this table. There is no netlist
+// in this repo to check it against.
+constexpr uint8_t kAdsAddr = 0x48;
+constexpr uint8_t kCurrentAdsChannel[4] = {0, 1, 2, 3};  // FL, FR, RL, RR
 
 // TCA9548A mux — REQUIRED for the encoders. All four AS5600 are hard-wired to
 // address 0x36 with no address pin, and this board commons their SDA/SCL with

@@ -36,6 +36,23 @@ constexpr float kClampStallAmps = 4.0f;  // over-current -> fault (calibrate on 
 // anything, and remember the sensor cannot tell a stall from a heavy load.
 constexpr float kWheelStallAmps = 10.0f;
 
+// PER-CORNER ToF OFFSET, in mm, added to every valid reading. FL, FR, RL, RR.
+//
+// Normalises the four corners onto FL's scale. Measured on the assembled base
+// 2026-08-13 with the trolley underside at a true ~80 mm: FL read ~75, FR ~130,
+// RL ~105, RR ~104 -- a spread far larger than VL53L0X part-to-part error, so
+// it is most likely bracket height rather than sensor error. These offsets make
+// the four AGREE; they do not make them TRUE (FL itself reads ~5 mm short).
+//
+// *** DOCKING DOES NOT DEPEND ON THESE. *** CornerEdgeDetector only asks
+// whether a reading falls inside band_min_mm..band_max_mm, a 380 mm window, so
+// even the 50 mm FR error produced the correct boolean. They exist for
+// readability and for any future use that needs comparable distances.
+//
+// Regenerate with the View button on the gamepad (bench_ble), which averages 16
+// frames and prints a replacement for this line.
+constexpr int16_t kTofOffsetMm[4] = {0, 0, 0, 0};
+
 // Corner edge detection: the solid board sits within this height band above the
 // up-facing sensors. Tune on the bench.
 inline tb::CornerConfig makeCornerConfig() {

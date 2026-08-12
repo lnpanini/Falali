@@ -131,6 +131,10 @@ void setup() {
   g_drive.enable(false);
 
   if (!g_tof.begin()) g_telemetry.log("ToF init failed — check XSHUT wiring on GPIO4-7");
+  // Same per-corner offsets the bench firmware uses, so both report distances on
+  // one scale. Docking does not depend on them (see cfg::kTofOffsetMm), but a
+  // number that means different things in two builds is a trap worth avoiding.
+  for (size_t i = 0; i < cfg::kNumZones; ++i) g_tof.setOffset(i, cfg::kTofOffsetMm[i]);
   if (!g_imu.begin()) g_telemetry.log("BNO08x init failed at 0x4B — heading unavailable");
   if (!g_current.begin()) g_telemetry.log("ADS1115 init failed at 0x48 — NO drivetrain fault signal");
   g_align.begin();

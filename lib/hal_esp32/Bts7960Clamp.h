@@ -49,12 +49,28 @@ public:
     active_is_ = is_open_;
   }
   void stop() override {
+    if (!present()) return;
     rpwm_pwm_.writeDuty(0);
     lpwm_pwm_.writeDuty(0);
   }
-  void enable(bool on) override { digitalWrite(en_, on ? HIGH : LOW); }
+  void enable(bool on) override {
+    if (!present()) return;
+    digitalWrite(en_, on ? HIGH : LOW);
+  }
 
+  // Guarded on the IS pin itself, not on present(): the sense pins are separate
+  // from the drive pins, so a board could wire the H-bridge without them.
+  //
+  // Without this, readFaults() called analogReadMilliVolts(0xFF) every control
+  // tick on the Wheel Drive PCB, where the whole clamp is kNoPin. The ADC driver
+  // rejected it and logged five lines each time -- a flood that swamped USB-CDC
+  // and buried the boot banner (2026-08-11).
+  //
+  // Returning 0 A is honest here: there is no clamp on this board, so it cannot
+  // be drawing current. The SafetyMonitor comparison against kClampStallAmps
+  // then simply never trips, which is the correct behaviour for absent hardware.
   float currentAmps() const override {
+    if (active_is_ == pins::kNoPin) return 0.0f;
     const float volts = analogReadMilliVolts(active_is_) / 1000.0f;
     return volts * k_;
   }

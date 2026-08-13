@@ -51,8 +51,10 @@ constexpr uint8_t kWheelBRK[4] = {39, 38, 15, 13};  // brake   (per wheel)
 //
 // *** SO THERE IS NO MOTOR FAULT DETECTION IN HARDWARE. ***
 // Protection comes from the driver's own P-sv overload trim (set it to the
-// motor's rated watts) plus StallDetector once the encoders are feeding real
-// speed back. Do not run the drivetrain unattended before then.
+// motor's rated watts) and from the ACS758 -> ADS1115 current sense below
+// (cfg::kWheelStallAmps). With the encoders retired there is no speed feedback
+// at all, so current is the ONLY drivetrain fault signal this board has. Do not
+// run the drivetrain unattended.
 constexpr uint8_t kWheelALARM = kNoPin;
 
 // --- CLAMP / LIMIT SWITCHES / E-STOP — NOT ON THIS BOARD ---
@@ -66,9 +68,10 @@ constexpr uint8_t kWheelALARM = kNoPin;
 //
 // *** DO NOT restore the pre-PCB values (11/12/13, 1/2, 14/21, 47). ***
 // On the fabricated board every one of those is now a wheel or encoder signal:
-//   GPIO11=RR F/R  12=RR EN  13=RR BRK  1/2=Encoder FL/FR  14=Encoder RR
+//   GPIO11=RR F/R  12=RR EN  13=RR BRK  14=Encoder RR (now free)
 //   GPIO21=FR SV   47=FR F/R
-// The clamp would fight the rear-right wheel.
+//   GPIO1/2 = FL/FR encoder headers, and NOW THE ARM UART LINK -- see below.
+// The clamp would fight the rear-right wheel, or the arm link.
 constexpr uint8_t kClampRPWM     = kNoPin;
 constexpr uint8_t kClampLPWM     = kNoPin;
 constexpr uint8_t kClampEN       = kNoPin;
@@ -97,7 +100,7 @@ constexpr uint8_t kClampLPWMCh   = 5;
 //   XSHUT GPIO   4     5     6     7
 constexpr uint8_t kTofXSHUT[4] = {4, 5, 6, 7};      // FL, FR, RL, RR
 
-// --- Shared I2C bus: ToF + encoders + IMU + current-sense ADC ---
+// --- Shared I2C bus: ToF + IMU + current-sense ADC ---
 constexpr uint8_t kI2C_SDA = 8;
 constexpr uint8_t kI2C_SCL = 9;
 
@@ -118,26 +121,46 @@ constexpr uint8_t kI2C_SCL = 9;
 constexpr uint8_t kAdsAddr = 0x48;
 constexpr uint8_t kCurrentAdsChannel[4] = {0, 1, 2, 3};  // FL, FR, RL, RR
 
-// TCA9548A mux — REQUIRED for the encoders. All four AS5600 are hard-wired to
-// address 0x36 with no address pin, and this board commons their SDA/SCL with
-// everything else, so they cannot be addressed individually as built. Fit the
-// mux inline (cut SDA/SCL at each encoder connector, feed from a mux channel).
-// Everything else stays on the main bus upstream of it.
+// TCA9548A mux, still scanned by src/pcb_identify.cpp during bring-up. It was
+// fitted for the encoders (all four AS5600 are hard-wired to 0x36 with no
+// address pin, and this board commons their SDA/SCL, so they could not be
+// addressed individually as built). The encoders are gone — see below — but the
+// address stays because the bring-up tool reports whether the mux is present.
 constexpr uint8_t kMuxAddr = 0x70;
-constexpr uint8_t kEncoderMuxChannel[4] = {0, 1, 2, 3};  // FL, FR, RL, RR
 
-// --- Encoder ANALOG fallback: AS5600 OUT pin, one ADC per wheel ---
-// Only needed if the mux is not fitted. Two caveats the board can't avoid:
-//   GPIO3  is a strapping pin (JTAG source select) — an encoder output sitting
-//          on it at boot can affect strapping.
-//   GPIO14 is ADC2, which stops working the moment WiFi is enabled.
-// Both problems vanish if you read the encoders over I2C through the mux, in
-// which case these four pins simply go unused.
-constexpr uint8_t kEncoderAnalog[4] = {1, 2, 3, 14};  // FL, FR, RL, RR
+// --- ENCODERS: REMOVED 2026-08-13. Do not reinstate without reading this. ---
+//
+// The four AS5600 never worked on the fabricated board and the project has moved
+// on without wheel feedback. Their pin tables are deleted rather than left
+// commented out, because a pin table that describes hardware nobody drives is
+// indistinguishable from one that describes hardware somebody does.
+//
+// *** GPIO1 AND GPIO2 ARE NOW THE ARM UART LINK. ***
+//
+// The board routes GPIO1/GPIO2 to the FL and FR encoder connectors (they were
+// the AS5600 analog-OUT fallback). bench_ble drives them as UART1 TX/RX to
+// ESP-ARM, so THOSE TWO HEADERS MUST STAY UNPOPULATED: an AS5600's OUT pin is an
+// actively driven analog output, and plugging one in puts a second transmitter
+// on the UART's TX line and a DC bias on its RX. The link would fail with
+// wiring that looks, and measures, entirely correct.
+//
+//   base GPIO1 (TX) --> arm GPIO44 (RX)
+//   base GPIO2 (RX) <-- arm GPIO43 (TX)
+//   GND <-> GND
+//
+// The other two encoder pins, GPIO3 and GPIO14, are simply free now. Both carry
+// caveats if anything else claims them: GPIO3 is a strapping pin (JTAG source
+// select) and GPIO14 is ADC2, which stops working once WiFi is enabled.
 
 // --- Free on the board, available if anything needs relocating ---
-//   GPIO0, 35, 36, 37, 43, 44, 45, 46   (0/45/46 strapping; 35–37 PSRAM — avoid)
-//   Genuinely clean spares: GPIO43, GPIO44 (UART0, free if using native USB-CDC)
+//   GPIO0, 3, 14, 35, 36, 37, 43, 44, 45, 46
+//     0/45/46  strapping — avoid
+//     3        strapping (JTAG source select)
+//     14       ADC2 — dead once WiFi is on
+//     35–37    PSRAM — avoid
+//   Genuinely clean spares: GPIO43, GPIO44 — but ONLY in a build whose console
+//   is native USB-CDC. bench_ble's is not (CONFIG_ESP_CONSOLE_UART_NUM=0 puts
+//   the IDF console on UART0 = GPIO43/44), which is why the arm link uses 1/2.
 
 // --- LEDC PWM configuration ---
 //

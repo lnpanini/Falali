@@ -50,6 +50,7 @@
 // a second copy of a docking state machine is the last thing this project needs.
 #include "ArduinoClock.h"
 #include "CornerEdgeDetector.h"
+#include "DockFrame.h"
 #include "DeadReckonOdometry.h"
 #include "DockingStateMachine.h"
 #include "SafetyMonitor.h"
@@ -223,10 +224,15 @@ static void pcbDriveMix(float vx, float vy, float w, float limit) {
 class GamepadDrive : public IDrive {
  public:
   void move(const DriveCommand& c) override {
+    // ROTATED. The state machine advances along +vx in ITS frame, which is the
+    // robot's strafe axis -- the sequence crabs under the trolley while manual
+    // driving stays nose-first. toDockFrame() in dockTick() permutes the corners
+    // to match; the two must always change together.
+    const DriveCommand r = toRobotFrame(c, cfg::kDockStrafeRight);
     // limit 1.0: the state machine's own config already sets its speeds, and
     // scaling them again by the operator's drive limit would silently change
     // the docking behaviour whenever someone touched a bumper.
-    pcbDriveMix(c.vx, c.vy, c.omega, 1.0f);
+    pcbDriveMix(r.vx, r.vy, r.omega, 1.0f);
   }
   void stop() override { pcbStopAll(); }
   void enable(bool) override {}          // per-wheel EN is handled in pcbWheel
@@ -405,11 +411,66 @@ static void tofCalibrate() {
   Console.println("# NOT persistent: paste the line above or it is lost at reset.\n");
 }
 
+// Fresh frame, then how many corners read present. Used to refuse a dock that
+// would start from under the trolley -- polls rather than trusting g_edge,
+// which may be seconds stale if nothing has been reading the bus.
+//
+// Debounce means one poll cannot flip a corner on its own, so this deliberately
+// reports the DEBOUNCED state: a corner that a single frame would have lit is
+// not one the state machine would have acted on either.
+static size_t tofPollAndCountPresent() {
+  tofPoll();
+  size_t n = 0;
+  for (size_t i = 0; i < cfg::kNumZones; ++i) n += g_edge.present(i) ? 1 : 0;
+  return n;
+}
+
 // ------------------------------------------------------------- arm link
 
+// *** THE ARM DISCARDS ANYTHING THAT ARRIVES TOO CLOSE BEHIND A COMMAND. ***
+//
+// Its handler reads ONE character and then throws the rest of the buffer away:
+//
+//     char c = Serial.read();
+//     while (Serial.available()) Serial.read();   // flush the rest of the line
+//         -- EDI-Arm/src/main.cpp:355-356
+//
+// That is sensible for a human at a terminal (it eats the CR/LF) and fatal for a
+// program. Two bytes written back to back leave here ~174 us apart at 115200,
+// comfortably inside one arm loop, so the arm acts on the FIRST and silently
+// drops the second. armJog() does exactly that -- 's' to stop the previous jog,
+// then the new direction -- so changing jog direction mid-press used to stop the
+// arm and go nowhere.
+//
+// So sends are QUEUED and released one per gap. The arm's firmware is not in
+// this repo, which is precisely why the reason is written out here rather than
+// left as a magic delay.
+static constexpr uint32_t ARM_GAP_MS = 15;      // >> the arm's loop period
+static constexpr size_t ARM_TXQ = 8;
+static char g_armq[ARM_TXQ];
+static size_t g_armq_head = 0, g_armq_tail = 0;
+static uint32_t g_arm_last_tx = 0;
+
 static void armSend(char c, const char* what) {
-  Serial1.write((uint8_t)c);
+  const size_t next = (g_armq_tail + 1) % ARM_TXQ;
+  if (next == g_armq_head) {
+    // Dropping here is better than dropping at the arm: at least it is visible.
+    Console.printf("arm <- '%c' DROPPED (queue full) (%s)\n", c, what);
+    return;
+  }
+  g_armq[g_armq_tail] = c;
+  g_armq_tail = next;
   Console.printf("arm <- '%c'  (%s)\n", c, what);
+}
+
+// Release at most one queued byte per gap. Called every loop.
+static void armPump() {
+  if (g_armq_head == g_armq_tail) return;
+  const uint32_t now = millis();
+  if (now - g_arm_last_tx < ARM_GAP_MS) return;
+  g_arm_last_tx = now;
+  Serial1.write((uint8_t)g_armq[g_armq_head]);
+  g_armq_head = (g_armq_head + 1) % ARM_TXQ;
 }
 
 // JOG IS LATCHED ON THE ARM SIDE.
@@ -438,6 +499,71 @@ static void armJogRelease() {
   armSend('s', "jog released -> stop");
 }
 
+// ------------------------------------------------------- link diagnostics
+//
+// Every byte the arm has ever sent us. Shown on the status line because the
+// distinction that matters when a link is silent is ABSENT vs WRONG, and only a
+// count separates them:
+//
+//   rx 0            nothing arrives     -> wiring, ground, or the arm is mute
+//   rx climbing, text readable          -> the link works, look elsewhere
+//   rx climbing, output is mojibake     -> baud or ground, not connectivity
+//
+// The arm is extremely chatty (~390 print sites, a ~20 line banner at boot), so
+// a working link cannot be quiet. Zero here after an arm power-cycle is proof.
+static uint32_t g_arm_rx_bytes = 0;
+
+// LOOPBACK: jumper base GPIO1 to GPIO2, disconnect the arm, then press Menu.
+//
+// Separates "our end is broken" from "the wire is broken" without a scope. If
+// this passes, UART1 and both pins are healthy and the fault is downstream of
+// the connector -- which is most of the diagnosis, for the price of one jumper.
+static bool g_link_probe_active = false;
+static uint32_t g_link_probe_started = 0;
+static uint32_t g_link_probe_rx_at_start = 0;
+
+static void linkProbe() {
+  // Bypasses armSend()'s queue deliberately: this must be an immediate, exactly
+  // known transmission, not something released a tick later.
+  while (Serial1.available()) Serial1.read();   // clear stale bytes first
+  g_arm_rx_bytes = 0;
+  g_link_probe_rx_at_start = 0;
+  g_link_probe_started = millis();
+  g_link_probe_active = true;
+
+  // 'm' is the safest probe in the arm's command set: it starts a live switch
+  // monitor that prints immediately and COMMANDS NO MOTION, and it aborts on the
+  // next byte received (EDI-Arm/src/Axis.cpp:639). A reply without moving the
+  // arm is exactly what a link test wants.
+  Serial1.write((uint8_t)'m');
+  Console.println("\nLINK PROBE — sent 'm' to the arm. Listening 1 s...");
+  Console.println("  (loopback test: jumper GPIO1->GPIO2, unplug the arm, press Menu)");
+}
+
+static void linkProbeTick() {
+  if (!g_link_probe_active) return;
+  if (millis() - g_link_probe_started < 1000) return;
+  g_link_probe_active = false;
+
+  const uint32_t got = g_arm_rx_bytes - g_link_probe_rx_at_start;
+  if (got == 0) {
+    Console.println("LINK PROBE: *** NOTHING RECEIVED ***");
+    Console.println("  arm->base is dead. Check, in this order:");
+    Console.println("   1. the CROSSING: base GPIO1 -> arm GPIO44, base GPIO2 -> arm GPIO43");
+    Console.println("      (straight-through ties TX to TX and transmits nothing either way)");
+    Console.println("   2. common GND between the two boards");
+    Console.println("   3. loopback: jumper GPIO1->GPIO2, unplug the arm, press Menu again.");
+    Console.println("      1 byte back = base UART fine, fault is in the wire or the arm.");
+  } else if (got == 1) {
+    Console.println("LINK PROBE: 1 byte back — that is a LOOPBACK echo.");
+    Console.println("  Base UART1 and GPIO1/GPIO2 are healthy. Fault is downstream:");
+    Console.println("  the wiring, or the arm.");
+  } else {
+    Console.printf("LINK PROBE: %lu bytes back — THE ARM IS TALKING. Link is good.\n",
+                   (unsigned long)got);
+  }
+}
+
 // ------------------------------------------------------------ dock tick
 
 // One tick of the real alignment flow, at cfg::kControlPeriodMs.
@@ -454,8 +580,15 @@ static void dockTick() {
   last_tick = now;
 
   tofPoll();
+  bool robot_corners[cfg::kNumZones];
+  for (size_t i = 0; i < cfg::kNumZones; ++i) robot_corners[i] = g_edge.present(i);
+
+  // Into the rotated frame: the machine's "leading pair" is the robot's
+  // right-hand side, because the sequence crabs in. Must use the same
+  // kDockStrafeRight as GamepadDrive::move, or it drives one way and reads
+  // edges from the other -- which bisects nonsense rather than failing loudly.
   bool present[cfg::kNumZones];
-  for (size_t i = 0; i < cfg::kNumZones; ++i) present[i] = g_edge.present(i);
+  toDockFrame(robot_corners, present, cfg::kDockStrafeRight);
 
   g_safety.update(g_sm.alignmentConfirmed(), FaultFlags{});
   const DockState before = g_sm.state();
@@ -470,11 +603,53 @@ static void dockTick() {
   // odometry reading that drove the decision are both on screen.
   if (g_sm.state() != before) {
     const Pose2D p = g_odom.pose();
-    Console.printf("DOCK  %-11s  corners %c%c%c%c  x%+7.1f y%+7.1f th%+5.2f\n",
+    // ROBOT-frame corners, not the rotated ones the machine sees. The operator
+    // is looking at a physical robot; printing dock-frame slots would mean
+    // mentally un-rotating every line to work out which sensor is dark.
+    Console.printf("DOCK  %-11s  FL%c FR%c RL%c RR%c  x%+7.1f y%+7.1f th%+5.2f\n",
                    g_sm.stateName(),
-                   present[0] ? 'F' : '.', present[1] ? 'F' : '.',
-                   present[2] ? 'R' : '.', present[3] ? 'R' : '.',
+                   robot_corners[0] ? '*' : '.', robot_corners[1] ? '*' : '.',
+                   robot_corners[2] ? '*' : '.', robot_corners[3] ? '*' : '.',
                    p.x_mm, p.y_mm, p.theta_rad);
+
+    // THE TROLLEY CALIBRATES THE SPEED CONSTANT.
+    //
+    // x_near is stamped on entry to CenterX and x_target on entry to CenterY,
+    // and x_target = 0.5*(x_near + x_far) - front_offset, so
+    //
+    //     span = 2 * (x_target - x_near + front_offset)
+    //
+    // recovers the traverse without the state machine having to expose x_far.
+    // That span IS the trolley depth, which is known independently -- so every
+    // successful CenterX measures max_lin_mm_s through the same sensors, at the
+    // same speed, over the same motion the docking actually performs. Far better
+    // than a stopwatch over a run that included acceleration from rest.
+    // Keyed on LEAVING CenterX: with DockingConfig::centre_lateral false the
+    // sequence goes straight to Confirm and CenterY never happens.
+    //
+    // The marks come straight off the state machine now rather than being
+    // reconstructed by algebra. That distinction matters when the complaint is
+    // "it overshot": near/far/target say whether the EDGES were found in the
+    // wrong place or the drive simply failed to reach a correct target, and no
+    // amount of staring at a final pose separates those two.
+    if (before == DockState::CenterX) {
+      const float span = g_sm.markFar() - g_sm.markNear();
+      // lo = the TRAILING pair covering the near edge, which is what the target
+      // is now bisected from (see DockingConfig::centre_opposed_pairs). near/far
+      // are kept because their span is what calibrates max_lin_mm_s.
+      Console.printf("      near %+.1f  lo %+.1f  far %+.1f  span %.1f  target %+.1f  ended %+.1f\n",
+                     g_sm.markNear(), g_sm.markLo(), g_sm.markFar(), span,
+                     g_sm.markTarget(), p.x_mm);
+      if (span > 1.0f) {
+        const float cal = cfg::makeOdometryCal().max_lin_mm_s;
+        Console.printf("      expected span %.0f mm (860 trolley + 2x28 cone) -> max_lin_mm_s "
+                       "config has %.0f\n",
+                       cfg::kExpectedSpanMm, cal * cfg::kExpectedSpanMm / span, cal);
+        if (span < 0.6f * cfg::kTrolleyDepthMm)
+          Console.println("      *** SPAN FAR TOO SHORT — the leading pair went dark "
+                          "mid-traverse. False edge, not a real one.");
+      }
+    }
     if (g_sm.state() == DockState::Fault) {
       Console.printf("DOCK  FAULT: %s\n", g_sm.lastReason());
       Console.println("      (press B to abort and clear, then 't' to see the corners)");
@@ -490,6 +665,15 @@ static void dockTick() {
     pcbStopAll();
     Console.println("\n*** ALIGNED (ToF confirmed) — clamping ***");
     armSend('b', "CLAMP sequence: X cycle, Y cycle, clamp");
+    // RETURN THE MACHINE TO IDLE, or the next dock cannot start.
+    //
+    // Confirmation moves it into ClampEngage, and we then stop ticking it -- so
+    // it sits there. Command::Dock is only honoured from Idle, so pressing A
+    // again did not restart anything; it just resumed ticking a ClampEngage
+    // whose deadline had long since passed, and the first tick reported
+    // "clamp timeout" (observed 2026-08-13). The clamp lives on the arm and is
+    // driven by the 'b' above, so this machine has nothing left to do here.
+    g_sm.handleCommand(Command::Abort);
   }
 }
 
@@ -702,6 +886,8 @@ void setup() {
   Console.println("         LT flip X | RT flip Y");
   Console.println("  SENSE  L3 (left stick click)  toggle ToF stream");
   Console.println("         R3 (right stick click) read the 4 corners once");
+  Console.println("  LINK   Menu  probe the arm link (sends 'm', no motion)");
+  Console.println("         watch 'arm-rx' on the status line — 0 means nothing arrives");
   Console.println("  NOTE   the serial console is OUTPUT ONLY — Bluepad32 owns");
   Console.println("         stdin, so typed keys do nothing here. Use the pad.");
   Console.printf("  limit %.2f  --  WHEELS OFF THE GROUND FIRST\n", LIMITS[g_limit_idx]);
@@ -715,7 +901,12 @@ void loop() {
 
   // Relay anything the arm says, so its replies and errors reach the operator
   // instead of vanishing into a wire nobody is watching.
-  while (Serial1.available()) Console.write((char)Serial1.read());
+  while (Serial1.available()) {
+    Console.write((char)Serial1.read());
+    ++g_arm_rx_bytes;
+  }
+  armPump();        // release at most one queued byte per ARM_GAP_MS
+  linkProbeTick();  // close out a Menu-button probe once its window expires
 
   float vx = 0, vy = 0, w = 0;
   bool stop = false;
@@ -737,6 +928,13 @@ void loop() {
     const bool l2 = g_ctl->l2(), r2 = g_ctl->r2();
     const bool tl = g_ctl->thumbL(), tr = g_ctl->thumbR();
     const bool sel = g_ctl->miscSelect();   // View button — ToF offset capture
+    const bool menu = g_ctl->miscStart();   // Menu button — arm link probe
+
+    // Menu: probe the arm link. On the pad because the serial console cannot
+    // receive input (see handleConsole), and Menu is the last free button.
+    static bool pMenu = false;
+    if (menu && !pMenu) linkProbe();
+    pMenu = menu;
 
     // View: capture per-corner offsets against whatever is overhead right now.
     // Refused mid-dock: it blocks ~1.5 s and zeroes the offsets while running,
@@ -789,6 +987,20 @@ void loop() {
     if (a && !pA) {
       if (!g_tof_ok) {
         Console.println("DOCK refused — ToF did not initialise. Alignment would be blind.");
+      } else if (tofPollAndCountPresent() > 0) {
+        // MUST START WITH EVERY CORNER CLEAR.
+        //
+        // Approach exits the instant a leading corner lights, and Orient then
+        // wants exactly one of the pair. Starting with a corner already present
+        // fires that on tick one at a meaningless position, and Orient hunts on
+        // a corner that was never an edge crossing -- which reads as "it pivots
+        // endlessly the moment I press A".
+        //
+        // The crossing IS the measurement, so it has to happen under power.
+        Console.print("DOCK refused — start OUTSIDE the trolley. Already present:");
+        for (size_t i = 0; i < cfg::kNumZones; ++i)
+          if (g_edge.present(i)) Console.printf("  %s (%u mm)", CORNER[i], g_edge.mm(i));
+        Console.println("\n  back out until R3 shows all four clear, then press A.");
       } else {
         g_sim_aligned = false;   // a new run invalidates any previous claim
         g_docking = true;
@@ -898,11 +1110,16 @@ void loop() {
     // equal and non-zero -- that is the single line that separates "the mix is
     // wrong" from "a corner is not pulling", and unlabelled columns make it far
     // too easy to read the pair the wrong way round.
+    // arm-rx is here rather than behind a command because a dead link is
+    // INVISIBLE otherwise: the base happily transmits into an open circuit and
+    // reports success. A counter stuck at 0 while the arm is powered is the
+    // whole diagnosis, and it costs one field.
     Console.printf("[%s]%s lim %.2f  vx%+.2f vy%+.2f w%+.2f  "
-                   "FL%4u FR%4u RL%4u RR%4u%s\n",
+                   "FL%4u FR%4u RL%4u RR%4u  arm-rx %lu%s\n",
                    live ? "live" : "NO PAD", g_sim_aligned ? " [SIM-ALIGNED]" : "",
                    limit, vx, vy, w,
                    g_duty[0], g_duty[1], g_duty[2], g_duty[3],
+                   (unsigned long)g_arm_rx_bytes,
                    g_docking ? g_sm.stateName() : g_jog_active ? "  [ARM JOGGING]" : "");
   }
 

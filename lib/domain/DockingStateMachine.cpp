@@ -100,13 +100,15 @@ void DockingStateMachine::update(const bool p[kNumCorners]) {
     case DockState::Orient:
       if (fl && fr) {
         applyStop(now);
-        x_near_ = odom_.pose().x_mm;  // both front corners at the near edge
+        x_near_ = odom_.pose().x_mm;  // both leading corners at the near edge
         x_far_found_ = false;
+        x_lo_found_ = false;
         enter(DockState::CenterX);
       } else {
-        // Rotate to bring the lagging front corner onto the edge.
-        // (Sign convention: verify on hardware.)
-        const float w = (fl && !fr) ? -cfg_.rotate_speed : cfg_.rotate_speed;
+        // Rotate to bring the lagging leading corner onto the edge. The sign is
+        // configuration, not a constant -- see DockingConfig::rotate_dir.
+        const float w = cfg_.rotate_dir *
+                        ((fl && !fr) ? -cfg_.rotate_speed : cfg_.rotate_speed);
         applyMove({0.0f, 0.0f, w}, now);
         if (now - state_since_ms_ > cfg_.orient_timeout_ms) toFault("orient timeout");
       }
@@ -115,19 +117,49 @@ void DockingStateMachine::update(const bool p[kNumCorners]) {
     case DockState::CenterX:
       if (!x_far_found_) {
         applyMove({cfg_.centre_speed, 0.0f, 0.0f}, now);  // advance to the far edge
+
         if (!fl && !fr) {
           x_far_ = odom_.pose().x_mm;
-          x_target_ = 0.5f * (x_near_ + x_far_) - cfg_.front_offset_mm;
+          if (cfg_.centre_opposed_pairs) {
+            // Never seen the trailing pair covered means the platform is not
+            // deeper than the sensor span, or a trailing sensor is dead. Either
+            // way the opposed midpoint would be fiction, and silently falling
+            // back to the leading-pair method would hide a real fault.
+            if (!x_lo_found_) {
+              toFault("trailing pair never covered — cannot centre on opposed edges");
+              return;
+            }
+            x_target_ = 0.5f * (x_lo_ + x_far_) - cfg_.front_offset_mm;
+          } else {
+            x_target_ = 0.5f * (x_near_ + x_far_) - cfg_.front_offset_mm;
+          }
           x_far_found_ = true;
-        } else if (now - state_since_ms_ > cfg_.center_timeout_ms) {
-          toFault("centerX seek timeout");
+        } else {
+          // STILL UNDER THE PLATFORM. The opposed near-edge mark is taken here
+          // and only here -- while the leading pair is still covered -- so it
+          // can never be captured by the same tick that closes the seek. That
+          // ordering is the geometry, not defensiveness: the trailing pair
+          // reaches the near edge a full (depth - sensor span) before the
+          // leading pair reaches the far one, and two marks at one position
+          // would bisect to nothing.
+          if (cfg_.centre_opposed_pairs && !x_lo_found_ && p[2] && p[3]) {
+            x_lo_ = odom_.pose().x_mm;
+            x_lo_found_ = true;
+          }
+          if (now - state_since_ms_ > cfg_.center_timeout_ms) {
+            toFault("centerX seek timeout");
+          }
         }
       } else {
         const float err = x_target_ - odom_.pose().x_mm;
         if (absf(err) <= cfg_.centre_tol_mm) {
           applyStop(now);
           y_phase_ = 0;
-          enter(DockState::CenterY);
+          // Straight to Confirm when the platform cannot travel laterally --
+          // see DockingConfig::centre_lateral. Confirm still demands all four
+          // corners, so a base parked badly on the uncorrectable axis is caught
+          // there rather than silently accepted.
+          enter(cfg_.centre_lateral ? DockState::CenterY : DockState::Confirm);
         } else {
           const float dir = err > 0 ? 1.0f : -1.0f;
           applyMove({dir * cfg_.centre_speed, 0.0f, 0.0f}, now);
@@ -184,6 +216,11 @@ void DockingStateMachine::update(const bool p[kNumCorners]) {
         }
       } else {
         confirm_holding_ = false;  // lost coverage — keep waiting
+      }
+      // ...but not forever. If all four corners never coincide, waiting is not
+      // patience, it is a stall the operator cannot distinguish from success.
+      if (now - state_since_ms_ > cfg_.confirm_timeout_ms) {
+        toFault("confirm timeout — all four corners never coincided");
       }
       break;
     }

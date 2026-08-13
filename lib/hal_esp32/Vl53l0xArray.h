@@ -15,8 +15,13 @@ namespace tb {
 
 class Vl53l0xArray : public IAlignmentSensor {
 public:
-  Vl53l0xArray(const uint8_t* xshut_pins, size_t count, uint8_t base_addr = 0x30)
-      : count_(count > kMaxZones ? kMaxZones : count), base_(base_addr) {
+  // signal_rate_limit_mcps: minimum return strength the device will accept.
+  // 0.25 is the library default and lets failed measurements through as numbers;
+  // 0.50 trades unneeded range for far fewer phantom readings. See begin().
+  Vl53l0xArray(const uint8_t* xshut_pins, size_t count, uint8_t base_addr = 0x30,
+               float signal_rate_limit_mcps = 0.50f)
+      : count_(count > kMaxZones ? kMaxZones : count), base_(base_addr),
+        signal_rate_limit_(signal_rate_limit_mcps) {
     for (size_t i = 0; i < count_; ++i) xshut_[i] = xshut_pins[i];
   }
 
@@ -45,6 +50,43 @@ public:
       }
       sensors_[i].setAddress(static_cast<uint8_t>(base_ + i));  // move it off 0x29
       sensors_[i].setMeasurementTimingBudget(20000);
+      // REJECT WEAK RETURNS AT THE SENSOR, because nothing downstream can.
+      //
+      // This library's readRangeContinuousMillimeters() returns the raw range
+      // register and never looks at RANGE_STATUS, so a measurement that failed
+      // on signal, sigma or phase comes back looking exactly like a good one.
+      // In open air that surfaces as occasional plausible garbage -- 0, 74, 221,
+      // 837 mm were all observed with nothing above the sensor (2026-08-13) --
+      // and a value that lands inside the corner band lights a corner that has
+      // no business being lit.
+      //
+      // Debounce cannot save us here: the readings are genuine measurements,
+      // just failed ones, and several can land in a row. Raising the signal rate
+      // limit above the 0.25 MCPS default makes the DEVICE discard them, so they
+      // arrive as an honest out-of-range instead of as a number.
+      //
+      // Costs maximum range, which is free for us -- the trolley sits at 70-90mm
+      // and nothing beyond 300 mm is of any interest.
+      sensors_[i].setSignalRateLimit(signal_rate_limit_);
+      // CONTINUOUS, NOT SINGLE-SHOT. This is the difference between a 93 ms
+      // frame and a 25 ms one, measured on the assembled base 2026-08-13.
+      //
+      // readRangeSingleMillimeters() starts a conversion, polls to completion,
+      // and returns -- so four sensors cost four serial 20 ms budgets plus
+      // overhead. In continuous mode all four free-run CONCURRENTLY and read()
+      // just collects the latest from each, so a frame costs roughly ONE budget
+      // however many sensors there are.
+      //
+      // That matters because DockingStateMachine's edge detection lags by
+      // frame x CornerConfig::debounce, and CenterX turns that lag into a
+      // systematic forward bias (both its edges are found while driving +x, so
+      // the bisection cannot cancel it). With 780 mm of sensor span under an
+      // 860 mm trolley there is only +/-40 mm of margin -- a 93 ms frame spends
+      // most of it on latency alone.
+      //
+      // The trade: a sample can be up to one budget stale. Still ~4x fresher
+      // than single-shot, which had that same staleness plus the serial wait.
+      sensors_[i].startContinuous();
       ok_[i] = true;
     }
     return ok;
@@ -73,7 +115,7 @@ public:
     f.zone_count = count_;
     f.t_ms = millis();
     for (size_t i = 0; i < count_; ++i) {
-      const uint16_t raw = sensors_[i].readRangeSingleMillimeters();
+      const uint16_t raw = sensors_[i].readRangeContinuousMillimeters();
       const bool valid = !sensors_[i].timeoutOccurred() && raw < 8000;
       // OFFSET ONLY A REAL MEASUREMENT. 8190 ("ranged, no target") and 65535
       // ("timeout") are sentinels, not distances -- shifting them would turn a
@@ -100,6 +142,7 @@ private:
 
   size_t count_;
   uint8_t base_;
+  float signal_rate_limit_;
   int16_t offset_[kMaxZones] = {0};
   uint8_t xshut_[kMaxZones] = {0};
   bool ok_[kMaxZones] = {false};

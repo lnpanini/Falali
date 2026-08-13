@@ -12,6 +12,7 @@
 // Domain (pure)
 #include "CornerEdgeDetector.h"
 #include "DeadReckonOdometry.h"
+#include "DockFrame.h"
 #include "DockingStateMachine.h"
 #include "LinkWatchdog.h"
 #include "MecanumDrive.h"
@@ -46,6 +47,33 @@ Bld120aMotor g_rl(pins::kWheelSV[2], pins::kWheelPwmCh[2], pins::kWheelFR[2],
 Bld120aMotor g_rr(pins::kWheelSV[3], pins::kWheelPwmCh[3], pins::kWheelFR[3],
                   pins::kWheelEN[3], pins::kWheelBRK[3], pins::kWheelALARM);
 MecanumDrive g_drive(g_fl, g_fr, g_rl, g_rr);
+
+// The docking sequence CRABS IN SIDEWAYS; everything else drives nose-first.
+//
+// This decorator gives DockingStateMachine a rotated view of the drivetrain, so
+// its "advance" is the robot's strafe. It must be paired with toDockFrame() on
+// the corner booleans below -- rotate one without the other and the machine
+// drives along one axis while reading edges from the perpendicular one, which
+// bisects nonsense instead of failing.
+//
+// Only move() is rotated. stop/brake/enable/fault have no direction to speak of,
+// and safeStop() deliberately still talks to g_drive directly: a decorator has
+// no business sitting between an emergency stop and the motors.
+class SidewaysDrive : public IDrive {
+ public:
+  explicit SidewaysDrive(IDrive& inner) : inner_(inner) {}
+  void move(const DriveCommand& c) override {
+    inner_.move(toRobotFrame(c, cfg::kDockStrafeRight));
+  }
+  void stop() override { inner_.stop(); }
+  void enable(bool on) override { inner_.enable(on); }
+  void brake(bool on) override { inner_.brake(on); }
+  bool fault() const override { return inner_.fault(); }
+
+ private:
+  IDrive& inner_;
+};
+SidewaysDrive g_dock_drive(g_drive);
 
 Bts7960Clamp g_clamp(pins::kClampRPWM, pins::kClampRPWMCh, pins::kClampLPWM, pins::kClampLPWMCh,
                      pins::kClampEN, pins::kClampIS_Close, pins::kClampIS_Open);
@@ -83,7 +111,7 @@ AlignmentIndicator g_align(g_telemetry, pins::kNoPin);
 CornerEdgeDetector g_edge(cfg::makeCornerConfig());
 DeadReckonOdometry g_odom(cfg::makeOdometryCal());
 SafetyMonitor g_safety;
-DockingStateMachine g_sm(g_drive, g_clamp, g_limits, g_odom, g_safety, g_clock,
+DockingStateMachine g_sm(g_dock_drive, g_clamp, g_limits, g_odom, g_safety, g_clock,
                          cfg::makeDockConfig());
 LinkWatchdog g_link(cfg::makeLinkConfig());
 
@@ -215,8 +243,13 @@ void loop() {
     g_current.update(now);   // one ADC channel per tick; all four every 4 ticks
     g_align.update(now, g_sm.alignmentConfirmed());
 
+    // Rotated into the docking frame -- see SidewaysDrive above. The machine's
+    // leading pair is the robot's right-hand side, because the sequence crabs
+    // under the trolley rather than driving in nose-first.
+    bool robot_corners[cfg::kNumZones];
+    for (size_t i = 0; i < cfg::kNumZones; ++i) robot_corners[i] = g_edge.present(i);
     bool present[cfg::kNumZones];
-    for (size_t i = 0; i < cfg::kNumZones; ++i) present[i] = g_edge.present(i);
+    toDockFrame(robot_corners, present, cfg::kDockStrafeRight);
 
     // Refresh the gate BEFORE the state machine ticks. The SM drives odometry itself.
     g_safety.update(g_sm.alignmentConfirmed(), readFaults());

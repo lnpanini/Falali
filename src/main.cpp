@@ -103,8 +103,13 @@ Bno08xImu g_imu(0x4B);
 Ads1115CurrentSense g_current(0x48);
 
 // No LED: GPIO48 (the DevKitC RGB) is FR's ENABLE line on this board, so the
-// indicator reports over telemetry. Pass GPIO1, GPIO2 or GPIO14 to blink a real
-// LED when one is fitted -- all three are free since the encoders moved to I2C.
+// indicator reports over telemetry.
+//
+// *** NOT GPIO1 OR GPIO2. *** They used to be suggested here as free, back when
+// they were only the unused analog-encoder fallback. They are now the UART link
+// to ESP-ARM, and an LED on the TX line would fight it. GPIO3 or GPIO14 are the
+// real spares -- 3 is a strapping pin (JTAG select) and 14 is ADC2, but neither
+// matters for an indicator LED.
 AlignmentIndicator g_align(g_telemetry, pins::kNoPin);
 
 // ---- Domain (pure) ---------------------------------------------------------
@@ -130,7 +135,7 @@ static FaultFlags readFaults() {
                                            : (digitalRead(pins::kEstop) == LOW);
   // The only drivetrain fault signal this board actually has. motor_alarm above
   // can never assert -- there is no ALARM terminal and no such net -- and with
-  // the encoders deferred there is no speed feedback either. Requires valid():
+  // the encoders REMOVED there is no speed feedback either. Requires valid():
   // a stale reading must not be able to trip the drivetrain, nor to hide a real
   // over-current behind a frozen value.
   f.wheel_overcurrent = g_current.valid() && g_current.peakAmps() > cfg::kWheelStallAmps;

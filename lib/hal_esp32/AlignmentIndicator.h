@@ -11,8 +11,10 @@
 // a basis for pointing a data stream at a motor enable.
 //
 // So the default indicator is a telemetry line. Pass a real GPIO to `pin` and it
-// also blinks -- GPIO1, GPIO2 and GPIO14 are free on this board (they were the
-// analog encoder fallback, unused since the encoders moved to I2C/mux).
+// also blinks -- GPIO3 or GPIO14 on this board.
+//
+// NOT GPIO1 or GPIO2, which this comment used to recommend: they were the unused
+// analog-encoder fallback then, and they are the ESP-ARM UART link now.
 //
 // Edge-triggered, not level: it announces the TRANSITION into and out of
 // alignment. A message every control tick would be noise, and the moment

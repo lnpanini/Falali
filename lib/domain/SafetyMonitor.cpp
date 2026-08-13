@@ -10,12 +10,12 @@ void SafetyMonitor::update(bool alignment_confirmed, const FaultFlags& faults) {
 
 bool SafetyMonitor::safeStopRequired() const {
   return faults_.motor_alarm || faults_.clamp_overcurrent || faults_.estop ||
-         estop_latch_;
+         faults_.wheel_overcurrent || estop_latch_;
 }
 
 bool SafetyMonitor::clampCloseAllowed() const {
   return alignment_confirmed_ && !faults_.motor_alarm && !faults_.clamp_overcurrent &&
-         !estop_latch_;
+         !faults_.wheel_overcurrent && !estop_latch_;
 }
 
 } // namespace tb

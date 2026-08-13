@@ -182,6 +182,65 @@ void test_abort_returns_to_idle() {
   TEST_ASSERT_TRUE(r.drive.stopped());
 }
 
+
+// --- opposed-pair centring ---------------------------------------------------
+
+// With centre_opposed_pairs the near edge is marked by the TRAILING pair (RL,RR)
+// covering, and the far edge by the LEADING pair (FL,FR) clearing. Those two
+// marks straddle the platform centre, so the target is their bare midpoint --
+// no front_offset_mm, hence no dependence on the odometry speed constant.
+void test_opposed_pairs_midpoint_needs_no_offset() {
+  Rig r;
+  r.cfg.centre_opposed_pairs = true;
+  r.cfg.front_offset_mm = 0.0f;
+  r.cfg.centre_lateral = false;   // one-axis platform, straight to Confirm
+  DockingStateMachine sm{r.drive, r.clamp, r.limits, r.odom, r.safety, r.clk, r.cfg};
+
+  sm.handleCommand(Command::Dock);
+  r.safety.update(false, FaultFlags{});  sm.update(NONE);
+  r.safety.update(false, FaultFlags{});  sm.update(FL_ONLY);
+  r.odom.setX(0);
+  r.safety.update(false, FaultFlags{});  sm.update(FRONT);       // -> CENTER_X
+  TEST_ASSERT_TRUE(sm.state() == DockState::CenterX);
+
+  r.odom.setX(100);
+  r.safety.update(false, FaultFlags{});  sm.update(ALL);         // trailing covered
+  TEST_ASSERT_TRUE(sm.markLoFound());
+  TEST_ASSERT_EQUAL_FLOAT(100.0f, sm.markLo());
+
+  r.odom.setX(300);
+  r.safety.update(false, FaultFlags{});  sm.update(FRONT_LOST);  // leading cleared
+  TEST_ASSERT_EQUAL_FLOAT(300.0f, sm.markFar());
+  // midpoint of the OPPOSED marks, not of near/far
+  TEST_ASSERT_EQUAL_FLOAT(200.0f, sm.markTarget());
+}
+
+// If the trailing pair never covers, the platform is not deeper than the sensor
+// span and the opposed midpoint would be fiction. Fault rather than silently
+// falling back to the leading-pair method, which would hide a dead sensor.
+void test_opposed_pairs_faults_without_trailing_mark() {
+  Rig r;
+  r.cfg.centre_opposed_pairs = true;
+  DockingStateMachine sm{r.drive, r.clamp, r.limits, r.odom, r.safety, r.clk, r.cfg};
+
+  sm.handleCommand(Command::Dock);
+  r.safety.update(false, FaultFlags{});  sm.update(NONE);
+  r.safety.update(false, FaultFlags{});  sm.update(FL_ONLY);
+  r.odom.setX(0);
+  r.safety.update(false, FaultFlags{});  sm.update(FRONT);
+  r.odom.setX(300);
+  r.safety.update(false, FaultFlags{});  sm.update(FRONT_LOST);  // never saw ALL
+
+  TEST_ASSERT_TRUE(sm.state() == DockState::Fault);
+}
+
+// The default must stay the leading-pair method, so existing callers and the
+// rest of this file are unaffected by the new flag.
+void test_leading_pair_remains_default() {
+  Rig r;
+  TEST_ASSERT_FALSE(r.cfg.centre_opposed_pairs);
+}
+
 int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
@@ -192,5 +251,8 @@ int main(int argc, char** argv) {
   RUN_TEST(test_overcurrent_during_clamp_faults);
   RUN_TEST(test_estop_forces_fault);
   RUN_TEST(test_abort_returns_to_idle);
+  RUN_TEST(test_opposed_pairs_midpoint_needs_no_offset);
+  RUN_TEST(test_opposed_pairs_faults_without_trailing_mark);
+  RUN_TEST(test_leading_pair_remains_default);
   return UNITY_END();
 }

@@ -18,13 +18,18 @@ netlist.**
 Raspberry Pi 5  ──USB──  ESP-BASE (Wheel Drive PCB)  ──  4× BLD-120A  ──  4× BLDC motor
    (brain)                 ESP32-S3-DevKitC-1 N16R8        (24 V)          (15:1 gearbox)
                                   │
-                                  ├── 4× AS5600 encoder      (via TCA9548A mux)
                                   ├── 4× VL53L0X ToF         (XSHUT re-addressing)
                                   ├── 1× BNO085 IMU
-                                  └── 1× ADS1115 ← 4× ACS758LCB current sensors
+                                  ├── 1× ADS1115 ← 4× ACS758LCB current sensors
+                                  │
+                                  └──UART1 (GPIO1/2)── ESP-ARM ── clamp + flippers
 
-Raspberry Pi 5  ──USB──  ESP-ARM  ──  BTS7960  ──  clamp actuator     [not yet built]
+                                       4× AS5600 encoder  [REMOVED 2026-08-13]
 ```
+
+The encoders never worked on the fabricated board and have been abandoned. There
+is now **no wheel-speed feedback of any kind** — the only drivetrain fault signal
+is per-wheel current (`cfg::kWheelStallAmps`).
 
 See `docs/superpowers/specs/2026-08-04-rpi5-main-controller-design.md` for the
 control split and the link watchdog.
@@ -58,7 +63,7 @@ LED. `pins::kWheelALARM == kNoPin`.
 |---|---|---|
 | ToF XSHUT FL/FR/RL/RR | 4, 5, 6, 7 | per-sensor reset for address assignment |
 | I²C SDA / SCL | 8 / 9 | one bus for everything |
-| Encoder analog FL/FR/RL/RR | 1, 2, 3, 14 | **only if not using the mux** — see §5 |
+| **Arm UART1 TX / RX** | **1 / 2** | to ESP-ARM GPIO44 / GPIO43 — see §5. Formerly the FL/FR encoder headers, which must stay unpopulated |
 
 ### Reserved and free
 
@@ -67,7 +72,8 @@ LED. `pins::kWheelALARM == kNoPin`.
 | 26–37 | flash + octal PSRAM — **board correctly leaves 35/36/37 unconnected** |
 | 19, 20 | native USB — unconnected |
 | 0, 45, 46 | strapping — unconnected |
-| **43, 44** | UART0 — **free**, the only clean spares (usable if serial goes over native USB-CDC) |
+| 3, 14 | freed by the encoder removal — 3 is strapping (JTAG select), 14 is ADC2 (dead once WiFi is on) |
+| **43, 44** | UART0 — free **only** in a native-USB-CDC build. `bench_ble` is not one (`CONFIG_ESP_CONSOLE_UART_NUM=0`), which is why the arm link uses 1/2 |
 
 26 GPIO used, no duplicates, no reserved-pin conflicts. Verified programmatically.
 
@@ -185,31 +191,55 @@ switching. Nothing was damaged — currents were microamps throughout.
 | Device | Address | Collision handling |
 |---|---|---|
 | 4× VL53L0X ToF | `0x29` ×4 | **XSHUT re-addressing** — held in reset, brought up one at a time (`Vl53l0xArray`) |
-| 4× AS5600 encoder | `0x36` ×4 | **TCA9548A mux**, channels 0–3 — address is fixed in silicon, no address pin |
-| TCA9548A | `0x70` | — |
+| TCA9548A | `0x70` | fitted for the (now removed) encoders; still reported by `src/pcb_identify.cpp` |
 | BNO085 IMU | `0x4A` | — |
 | ADS1115 | **`0x48`** | ADDR → GND. **Do not leave floating or tie to SDA** — that gives `0x4A` and collides with the IMU |
 
-### Mux installation requires trace surgery
+### Base ↔ ESP-ARM serial link
 
-SDA/SCL are commoned across the whole board, so an inline adapter won't isolate
-anything. **Cut SDA and SCL at each of the four encoder connectors (8 cuts)** and
-feed each from a TCA9548A channel. Everything else stays on the main bus upstream.
+The base drives the arm with single characters over **UART1 on GPIO1/GPIO2**.
 
-Buy **2** — one is needed, the second is insurance against a lifted pad.
+```
+base GPIO1 (TX)  ────────►  arm GPIO44 (RX)
+base GPIO2 (RX)  ◄────────  arm GPIO43 (TX)
+base GND         ─────────  arm GND
+```
 
-### If the mux is skipped
+**The crossing is the whole thing.** Straight-through ties TX to TX and RX to RX:
+two outputs driving each other, two inputs floating, nothing transmitted either
+way — and it measures perfectly on a continuity test.
 
-Each AS5600's analog `OUT` is already wired to GPIO1/2/3/14. Workable, but:
-- **GPIO3** is a strapping pin (JTAG source select)
-- **GPIO14** is ADC2 — stops working the moment WiFi is enabled
-- lower effective resolution and noisier than the 12-bit I²C read
+Three constraints that are not obvious from either codebase:
 
-Both problems disappear with the mux, since those four pins then go unused.
+1. **GPIO1/GPIO2 are the FL/FR encoder headers.** Leave them unpopulated. An
+   AS5600's analog `OUT` is actively driven and would fight the UART's TX.
+2. **The arm's `Serial` is UART0 on GPIO43/44, not native USB.** Its
+   `platformio.ini` leaves `build_flags` empty, so `ARDUINO_USB_CDC_ON_BOOT`
+   defaults to 0 and no CDC object is linked into the binary at all. Plugging
+   into the DevKitC's *native USB* port gives a port that enumerates, stays
+   silent, and ignores everything typed at it.
+3. **The arm discards anything arriving close behind a command.** Its handler
+   reads one character then flushes the rest of the buffer, so two bytes sent
+   back to back lose the second. The base therefore paces its transmissions
+   (`ARM_GAP_MS` in `sketch_pcb.cpp`) rather than writing directly.
 
-> **Note:** AS5600**L** would also solve this (programmable address, library
-> already supports it at `0x40`) — but it has **no analog output**, only I²C or
-> PWM. Not a drop-in for a board that routes the analog pin.
+Diagnosing a silent link: the arm prints a ~20-line banner at boot unconditionally,
+so power-cycling it with the base monitor open tests the arm→base direction for
+free. The base's status line carries an `arm-rx` byte counter, and the **Menu**
+button runs an active probe.
+
+### Encoders — removed 2026-08-13
+
+Four AS5600 on a TCA9548A mux, never made to work: all four share address `0x36`
+with no address pin, the board commons SDA/SCL, and isolating them needed eight
+trace cuts at the encoder connectors. Resistance checks found two modules at
+60 kΩ and 165 kΩ against 280 kΩ for the healthy pair, and the parasitic-power
+signature pointed at a missing VCC connection in the loom.
+
+The pin tables are deleted from `pins.h` rather than commented out. GPIO3 and
+GPIO14 are now free; GPIO1 and GPIO2 belong to the arm link.
+
+
 
 ---
 
@@ -295,8 +325,8 @@ caster from the current differential between wheels.
 | 1 | ESP32-S3-DevKitC-1 **N16R8** | move |
 | 4 | BLD-120A driver + BLDC motor, 15:1, 150 mm wheel | move |
 | 4 | transistor adapter (BC547/2N3904 + 10 k + 100 k + 1.5 k) | move |
-| 2 | **TCA9548A** breakout | sense |
-| 4 | AS5600 breakout | sense |
+| 2 | **TCA9548A** breakout | ~~sense~~ — encoders abandoned, mux no longer needed |
+| 4 | AS5600 breakout | ~~sense~~ — **removed 2026-08-13**, see §5 |
 | 4 | VL53L0X breakout — **must break out XSHUT** | dock |
 | 1 | BNO085 breakout (10-pin) | dock |
 | 1 | ADS1115 breakout | sense |
@@ -316,6 +346,8 @@ the DevKitC socket, J3 and the standoffs.
 | 2026-08-05 | PWM resolution 8 → 12-bit; SV carrier 20 kHz → 5 kHz (20 kHz was outside the driver's 1–10 kHz spec). |
 | 2026-08-05 | No DAC / op-amp / level shifter for SV — the driver takes PWM natively and SV is high-impedance. |
 | 2026-08-05 | Encoders via TCA9548A rather than AS5600L, to keep the existing AS5600 stock. |
+| 2026-08-13 | **Encoders abandoned.** Never worked on the fabricated board; no wheel-speed feedback, current sense is the only drivetrain fault signal. |
+| 2026-08-13 | Base↔arm link on UART1 GPIO1/2 — *not* GPIO43/44, which `bench_ble`'s IDF console occupies. |
 
 ## 9. Open items
 

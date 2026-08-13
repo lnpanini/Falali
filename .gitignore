@@ -36,3 +36,6 @@ bench_logs/
 
 # Superseded Arduino-IDE sketch, replaced by src/bench_motor.cpp
 bench_motor_test/
+
+# graphify knowledge-graph output — regenerable from the source it indexes
+graphify-out/

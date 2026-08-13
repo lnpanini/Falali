@@ -8,3 +8,16 @@ time,board,boot,result,note
 2026-08-08T23:28:33,1,0x8 (SPI_FAST_FLASH_BOOT),PASS,both directions
 2026-08-08T23:29:08,2,0x8 (SPI_FAST_FLASH_BOOT),ERROR,signal scan returned no rows (0 bytes)
 2026-08-08T23:30:19,2,(no ROM banner),ERROR,signal scan returned no rows (0 bytes)
+2026-08-09T00:19:28,1,0x0 (DOWNLOAD(USB/UART0)),FAIL,"boot 0x0 (DOWNLOAD(USB/UART0)), GPIO0 low at reset"
+2026-08-09T00:22:41,1,0x0 (DOWNLOAD(USB/UART0)),FAIL,"boot 0x0 (DOWNLOAD(USB/UART0)), GPIO0 low at reset"
+2026-08-09T00:31:02,1,0x0 (DOWNLOAD(USB/UART0)),FAIL,"boot 0x0 (DOWNLOAD(USB/UART0)), GPIO0 low at reset"
+2026-08-09T00:42:13,1,0x8 (SPI_FAST_FLASH_BOOT),PASS,both directions
+2026-08-09T00:43:10,2,0x8 (SPI_FAST_FLASH_BOOT),PASS,both directions
+2026-08-09T00:44:10,3,0x8 (SPI_FAST_FLASH_BOOT),FAIL,no motion -- check RV pot fully CCW and 24 V at the driver
+2026-08-09T00:44:35,4,0x8 (SPI_FAST_FLASH_BOOT),SKIPPED,motion test skipped by operator
+2026-08-09T00:45:18,4,0x8 (SPI_FAST_FLASH_BOOT),FAIL,no motion -- check RV pot fully CCW and 24 V at the driver
+2026-08-09T02:12:53,3,0x8 (SPI_FAST_FLASH_BOOT),PASS,both directions
+2026-08-09T02:29:28,4,0x8 (SPI_FAST_FLASH_BOOT),PASS,both directions
+2026-08-09T21:02:52,1,0x8 (SPI_FAST_FLASH_BOOT),SKIPPED,motion test skipped by operator
+2026-08-09T21:12:58,1,0x8 (SPI_FAST_FLASH_BOOT),PASS,both directions
+2026-08-09T21:14:01,2,0x8 (SPI_FAST_FLASH_BOOT),PASS,both directions

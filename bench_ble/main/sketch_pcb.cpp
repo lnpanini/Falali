@@ -140,6 +140,7 @@ static constexpr uint8_t ARM_WIFI_CHANNEL = 1;
 
 static bool g_espnow_up = false;
 static uint32_t g_arm_replies = 0;
+static uint32_t g_espnow_ignored = 0;   // frames from anyone who is not the arm
 
 // Last text the arm sent. Read by the busy interlock below.
 static char g_arm_status[32] = "";
@@ -512,15 +513,27 @@ static void armOnRecv(const esp_now_recv_info_t* info, const uint8_t* data, int 
   // cheerfully fire the next command into its single-slot buffer. The arm's own
   // receiver filters on sender for exactly this reason; this side did not.
   if (memcmp(info->src_addr, ARM_ESP_MAC, 6) != 0) {
-    // Report each unfamiliar sender ONCE. Silently dropping would leave the same
-    // mystery that produced this bug; printing every frame would recreate the
-    // flood we are fixing.
-    static uint8_t last_stranger[6] = {0};
-    if (memcmp(info->src_addr, last_stranger, 6) != 0) {
-      memcpy(last_stranger, info->src_addr, 6);
+    // Report each unfamiliar sender ONCE EVER, then just count.
+    //
+    // A single "last seen" slot is not enough: there are at least two other
+    // ESP-NOW devices broadcasting on channel 1 here, and alternating senders
+    // defeat a one-entry cache completely -- every frame looks new and the log
+    // floods exactly as before. Hence a small seen-table.
+    //
+    // Four entries is deliberate. If more than four strangers ever appear the
+    // table stops learning and the counter carries the signal instead, which is
+    // the right failure: a busy channel should cost a number on the status line,
+    // not a scrolling console.
+    ++g_espnow_ignored;
+    static uint8_t seen[4][6] = {};
+    static uint8_t seen_n = 0;
+    for (uint8_t i = 0; i < seen_n; ++i)
+      if (memcmp(info->src_addr, seen[i], 6) == 0) return;
+    if (seen_n < 4) {
+      memcpy(seen[seen_n++], info->src_addr, 6);
       const uint8_t* m = info->src_addr;
       Console.printf("ESP-NOW: ignoring %02X:%02X:%02X:%02X:%02X:%02X "
-                     "(not the arm) — %d bytes\n",
+                     "(not the arm, %d bytes) — other traffic on channel 1\n",
                      m[0], m[1], m[2], m[3], m[4], m[5], len);
     }
     return;
@@ -1187,11 +1200,11 @@ void loop() {
     // acted on it. A counter stuck at 0 while sends "succeed" is the difference
     // between a link that works and one that merely transmits.
     Console.printf("[%s]%s lim %.2f  vx%+.2f vy%+.2f w%+.2f  "
-                   "FL%4u FR%4u RL%4u RR%4u  arm-rx %lu%s\n",
+                   "FL%4u FR%4u RL%4u RR%4u  arm-rx %lu ign %lu%s\n",
                    live ? "live" : "NO PAD", g_sim_aligned ? " [ALIGNED]" : "",
                    limit, vx, vy, w,
                    g_duty[0], g_duty[1], g_duty[2], g_duty[3],
-                   (unsigned long)g_arm_replies,
+                   (unsigned long)g_arm_replies, (unsigned long)g_espnow_ignored,
                    g_docking ? g_sm.stateName() : g_arm_busy ? "  [ARM BUSY]" : "");
   }
 

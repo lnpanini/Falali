@@ -143,14 +143,32 @@ static uint32_t g_arm_replies = 0;
 // Last text the arm sent. Read by the busy interlock below.
 static char g_arm_status[32] = "";
 
-// BUSY INTERLOCK. The arm reports "busy" when it is mid-sequence. Re-sending
-// while it is busy achieves nothing and floods the console, so ordinary commands
-// are suppressed until the operator presses a button again -- suppressed, not
-// queued, because a command the operator issued ten seconds ago against a state
-// that has since changed is not one they still want executed.
+// BUSY INTERLOCK, modelled on what the arm ACTUALLY does (Arm_code, reviewed
+// 2026-08-14 and pinned as the `arm` submodule).
 //
-// E-stop is exempt. It always sends.
+// The arm accepts exactly ONE command at a time. Its buffer is a single slot the
+// receive callback overwrites unconditionally, so a second command sent before
+// it has serviced the first is silently lost -- no reply, no error. And a grab
+// or release runs X then Y sequentially with 8 s timeouts per phase, so it can
+// legitimately be busy for ~40 SECONDS.
+//
+// So busy is latched WHEN WE SEND, not when the arm complains. Waiting for the
+// arm to answer "busy" would mean the second press has already been fired into
+// a slot that may be overwritten, and it made every other press get through --
+// harmless, since the arm rejects them, but it lied to the operator about what
+// had been sent.
+//
+// Cleared by any terminal reply: done_*, failed:*, rejected:*, stopped.
 static bool g_arm_busy = false;
+static uint32_t g_arm_busy_since = 0;
+
+// ...and by a timeout, because the arm can go quiet without telling us. Its
+// serial console has its own `stop`, which calls emergencyStopEverything(false)
+// -- sendStatus FALSE. Anyone at the arm's USB port can abort a workflow and our
+// interlock would never hear about it, latching the controls forever.
+//
+// 45 s covers the ~40 s worst case with margin.
+static constexpr uint32_t ARM_BUSY_TIMEOUT_MS = 45000;
 
 // ------------------------------------------------------------------ drive
 
@@ -492,10 +510,11 @@ static void armOnRecv(const esp_now_recv_info_t* info, const uint8_t* data, int 
 
   Console.printf("arm -> \"%s\"\n", g_arm_status);
 
-  // Only "busy" latches the interlock. Anything else -- done_*, stopped,
-  // failed:, rejected: -- means the arm is free again, whether it succeeded or
-  // not, so the operator gets their controls back either way.
-  g_arm_busy = (strcmp(g_arm_status, "busy") == 0);
+  // Anything except "busy" is terminal -- done_*, stopped, failed:, rejected:.
+  // The arm is free again whether it succeeded or not, so the controls come back
+  // either way. "busy" means our command was discarded and the PREVIOUS workflow
+  // is still running, so the latch stays.
+  if (strcmp(g_arm_status, "busy") != 0) g_arm_busy = false;
 }
 
 // Bring up WiFi far enough for ESP-NOW, and no further.
@@ -559,12 +578,24 @@ static void armSend(const char* cmd, const char* what) {
 // Ordinary commands go through the busy interlock; E-stop does not.
 static void armCommand(const char* cmd, const char* what) {
   if (g_arm_busy) {
-    Console.printf("arm <- \"%s\" SUPPRESSED — arm reported busy (%s)\n", cmd, what);
-    Console.println("  press again once it reports done/stopped");
-    g_arm_busy = false;   // one press, one refusal: the next press gets through
+    Console.printf("arm <- \"%s\" HELD — arm busy %lus (%s)\n",
+                   cmd, (unsigned long)((millis() - g_arm_busy_since) / 1000), what);
+    Console.println("  it takes ~40 s for grab/release. B always gets through.");
     return;
   }
+  g_arm_busy = true;
+  g_arm_busy_since = millis();
   armSend(cmd, what);
+}
+
+// Release the latch if the arm never answers. See ARM_BUSY_TIMEOUT_MS.
+static void armBusyTick() {
+  if (!g_arm_busy) return;
+  if (millis() - g_arm_busy_since < ARM_BUSY_TIMEOUT_MS) return;
+  g_arm_busy = false;
+  Console.println("\narm: no reply in 45 s — releasing the interlock.");
+  Console.println("  the arm may have been stopped from its own serial console,");
+  Console.println("  which reports nothing back. Its state is now UNKNOWN.");
 }
 
 // ------------------------------------------------------------ dock tick
@@ -667,7 +698,7 @@ static void dockTick() {
     g_sim_aligned = true;
     pcbStopAll();
     Console.println("\n*** ALIGNED (ToF confirmed) — clamping ***");
-    armSend("grab", "auto-clamp on ToF confirmation");
+    armCommand("grab", "auto-clamp on ToF confirmation");
     // RETURN THE MACHINE TO IDLE, or the next dock cannot start.
     //
     // Confirmation moves it into ClampEngage, and we then stop ticking it -- so
@@ -869,8 +900,9 @@ void loop() {
   handleConsole();
   BP32.update();
 
-  // Arm replies arrive on an ESP-NOW callback, not by polling, so there is
-   // nothing to service here.
+  // Arm replies arrive on an ESP-NOW callback, not by polling. The only thing
+  // to service is the interlock's own timeout.
+  armBusyTick();
 
   float vx = 0, vy = 0, w = 0;
   bool stop = false;
@@ -986,6 +1018,14 @@ void loop() {
       // BYPASSES armCommand's busy interlock on purpose. An E-stop that can be
       // suppressed by a status message is not an E-stop. The wheels are already
       // stopped further down by the `stop` branch; this is the other board.
+      //
+      // *** THE STRING MUST BE EXACTLY "estop" -- lowercase, no whitespace. ***
+      // The arm has two paths for it. processWirelessCommand() trims and
+      // lowercases, so "ESTOP\n" works there -- but that only runs from its
+      // loop(), and its servo ramps BLOCK for ~1.8 s at a time. The mid-motion
+      // abort uses a raw strncmp against the untrimmed buffer, so any variant
+      // silently downgrades E-stop from "stops the servo now" to "stops it when
+      // the ramp finishes". (Arm_code MotorController.cpp:112, main.cpp:190.)
       armSend("estop", "E-STOP: arm + local wheels");
       g_arm_busy = false;   // whatever it was doing, it is not doing it now
     }

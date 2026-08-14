@@ -15,31 +15,35 @@
 // inputs as enables. This file reads include/pins.h -- the netlist-derived map --
 // and never a hand-typed table.
 //
-// SIMULATED ALIGNMENT
-// -------------------
-// The ToF mounts are not built yet, so 'aligned' cannot be measured. Y on the
-// gamepad (or 'a' on serial) toggles a SIMULATED alignment flag so the indicator
-// and anything downstream of it can be exercised now. It is deliberately loud
-// about being fake: nothing should ever ship reading this flag.
+// THE ARM IS REACHED BY ESP-NOW, NOT BY WIRE
+// ------------------------------------------
+// The three-wire UART on GPIO1/2 never passed a byte and was retired 2026-08-14.
+// Commands now go out as plain NUL-terminated text over ESP-NOW on channel 1:
+// "grab", "release", "home_setup", "estop", and nothing else. The arm is already
+// flashed to parse exactly those, so the strings are an interface.
 //
 // CONTROLS
 //   DRIVE   left stick   move / strafe      right stick X  rotate
-//           LB / RB      slower / faster    B              STOP EVERYTHING
-//   ARM     D-pad U/D    jog X (held)       D-pad L/R      jog Y (held)
-//           A            clamp sequence     X              release / stow
-//           LT           flip X             RT             flip Y
-//   Y       toggle SIMULATED aligned
+//           D-pad        8-way translation  LB / RB        slower / faster
+//   DOCK    A            run the real ToF alignment, auto-grab on confirm
+//   ARM     X  grab      Y  release         Menu  home_setup
+//   STOP    B            E-STOP: arm AND local wheels
+//   SENSE   L3 ToF stream    R3 read corners    View capture ToF offsets
 //
 // SAFETY
 //   * no gamepad at boot -> motors stay disabled; nothing spins on power-up
-//   * gamepad disconnect -> wheels stop AND any latched arm jog is stopped
-//   * B sends the arm's E-STOP as well as stopping the wheels: one control the
-//     operator can reach without first working out which subsystem is at fault
+//   * gamepad disconnect -> wheels stop
+//   * B stops BOTH boards, and bypasses the busy interlock: an E-stop that a
+//     status message can suppress is not an E-stop
 //   * drive speed is capped at 40% -- there is no stall detection on this base
 //   WHEELS OFF THE GROUND.
 #include <Arduino.h>
 #include <Bluepad32.h>
 #include <Wire.h>
+#include <WiFi.h>
+#include <esp_now.h>
+#include <esp_wifi.h>
+#include <string.h>
 
 #include "bench_mix.h"   // pure mecanum mix, shared with the bench rigs
 #include "config.h"
@@ -88,6 +92,9 @@ static uint16_t g_duty[4] = {0, 0, 0, 0};
 static ControllerPtr g_ctl = nullptr;
 static bool g_pairing = false;
 static uint8_t g_cal_sel = 0;
+// Set ONLY by a real ToF confirmation now. It was a manual override on Y until
+// 2026-08-14, when Y became the arm's "release"; the status line still shows it
+// because "this base believes it is aligned" is worth seeing at a glance.
 static bool g_sim_aligned = false;
 
 // SPEED LIMITS -- CEILING IS 40%, ON PURPOSE.
@@ -98,25 +105,52 @@ static bool g_sim_aligned = false;
 static const float LIMITS[] = {0.10f, 0.20f, 0.30f, 0.40f};
 static uint8_t g_limit_idx = 0;
 
-// ---- link to ESP-ARM ------------------------------------------------------
+// ---- link to ESP-ARM: ESP-NOW, replacing the three-wire UART ---------------
 //
-// NOT GPIO43/44. Those are UART0, which this firmware's console already uses
-// (CONFIG_ESP_CONSOLE_UART_NUM=0), so driving them would collide with the
-// operator console. GPIO1/2 are free -- they were the analog encoder fallback
-// in pins.h, unused since the encoders moved to I2C.
+// The UART link on GPIO1/2 never passed a byte and was retired 2026-08-14. This
+// is radio instead: no wires, no crossing to get backwards, and it works whether
+// or not the arm's USB cable is plugged in.
 //
-// The ARM side is stock: its Serial is UART0 at 115200 on ITS GPIO43/44, and it
-// parses single characters, so it needs no firmware change to accept these.
+// THE COST IS REAL AND WORTH STATING. Bluepad32/BTstack owns the 2.4 GHz radio
+// for the gamepad; bringing up WiFi STA makes them share it through the
+// coexistence scheduler. Expect the pad to be slightly less responsive and to
+// drop marginally more often than it did on the UART build. If that becomes
+// intolerable the answer is to fix the wires, not to tune this.
 //
-//   base GPIO1 (TX) --> arm GPIO44 (RX)
-//   base GPIO2 (RX) <-- arm GPIO43 (TX)
-//   GND <-> GND
+// PROTOCOL: plain text, NUL-terminated, four commands and no more. No JSON, no
+// structs, no versioning -- the arm's receiver is already flashed and parses
+// exactly these, so the strings are an interface, not an implementation detail.
 //
-// CAUTION: the arm's UART0 is shared with its USB-UART bridge. Do not leave the
-// arm's USB cable plugged into a computer while this link is driving it, or two
-// transmitters fight over the arm's RX line.
-static constexpr uint8_t ARM_TX = 1, ARM_RX = 2;
-static bool g_arm_passthrough = false;
+//     "grab"        "release"        "home_setup"        "estop"
+//
+// Replies come back as text too: done_grab, done_release, done_home, busy,
+// stopped, failed:<reason>, rejected:<reason>.
+static const uint8_t ARM_ESP_MAC[6] = {0x3C, 0xDC, 0x75, 0x5C, 0x8B, 0x08};
+
+// This board's own MAC, checked at boot. Flashing base firmware onto the arm (or
+// vice versa) is a five-second mistake that presents as "the link is dead", and
+// we have already spent an evening on a link that was dead for other reasons.
+static const uint8_t SELF_ESP_MAC[6] = {0x14, 0xC1, 0x9F, 0x3B, 0x7B, 0xE4};
+
+// WiFi channel. ESP-NOW peers must agree, and since neither board joins an AP
+// nothing will move us off it -- but it has to be set explicitly, because the
+// default depends on prior NVS state rather than on anything in this file.
+static constexpr uint8_t ARM_WIFI_CHANNEL = 1;
+
+static bool g_espnow_up = false;
+static uint32_t g_arm_replies = 0;
+
+// Last text the arm sent. Read by the busy interlock below.
+static char g_arm_status[32] = "";
+
+// BUSY INTERLOCK. The arm reports "busy" when it is mid-sequence. Re-sending
+// while it is busy achieves nothing and floods the console, so ordinary commands
+// are suppressed until the operator presses a button again -- suppressed, not
+// queued, because a command the operator issued ten seconds ago against a state
+// that has since changed is not one they still want executed.
+//
+// E-stop is exempt. It always sends.
+static bool g_arm_busy = false;
 
 // ------------------------------------------------------------------ drive
 
@@ -280,7 +314,11 @@ static bool g_tof_ok = false;
 // bring-up: eight exact directions, each a pure axis command, so an asymmetry
 // can be attributed to one corner instead of guessed at from a stick angle.
 // Serial 'j' hands the D-pad back to the arm jog.
-static bool g_dpad_drive = true;
+// Kept as a named constant rather than deleted: the D-pad block below reads far
+// better with the intent spelled out, and the ARM JOG alternative it used to
+// select is gone with the UART (the arm's per-axis jog characters are not part
+// of the four-command ESP-NOW protocol).
+static constexpr bool g_dpad_drive = true;
 
 // ------------------------------------------------------------ ToF debug
 //
@@ -427,141 +465,106 @@ static size_t tofPollAndCountPresent() {
 
 // ------------------------------------------------------------- arm link
 
-// *** THE ARM DISCARDS ANYTHING THAT ARRIVES TOO CLOSE BEHIND A COMMAND. ***
-//
-// Its handler reads ONE character and then throws the rest of the buffer away:
-//
-//     char c = Serial.read();
-//     while (Serial.available()) Serial.read();   // flush the rest of the line
-//         -- EDI-Arm/src/main.cpp:355-356
-//
-// That is sensible for a human at a terminal (it eats the CR/LF) and fatal for a
-// program. Two bytes written back to back leave here ~174 us apart at 115200,
-// comfortably inside one arm loop, so the arm acts on the FIRST and silently
-// drops the second. armJog() does exactly that -- 's' to stop the previous jog,
-// then the new direction -- so changing jog direction mid-press used to stop the
-// arm and go nowhere.
-//
-// So sends are QUEUED and released one per gap. The arm's firmware is not in
-// this repo, which is precisely why the reason is written out here rather than
-// left as a magic delay.
-static constexpr uint32_t ARM_GAP_MS = 15;      // >> the arm's loop period
-static constexpr size_t ARM_TXQ = 8;
-static char g_armq[ARM_TXQ];
-static size_t g_armq_head = 0, g_armq_tail = 0;
-static uint32_t g_arm_last_tx = 0;
+// Delivery result. This is LINK-LAYER only: SUCCESS means the arm's radio
+// acknowledged the frame, not that the arm liked the command or acted on it.
+// The real answer arrives asynchronously in armOnRecv below.
+static void armOnSent(const uint8_t* mac, esp_now_send_status_t status) {
+  (void)mac;
+  if (status != ESP_NOW_SEND_SUCCESS)
+    Console.println("  ESP-NOW: NOT DELIVERED — arm out of range, off, or wrong channel");
+}
 
-static void armSend(char c, const char* what) {
-  const size_t next = (g_armq_tail + 1) % ARM_TXQ;
-  if (next == g_armq_head) {
-    // Dropping here is better than dropping at the arm: at least it is visible.
-    Console.printf("arm <- '%c' DROPPED (queue full) (%s)\n", c, what);
+// Signature is the ESP-IDF 5.x form (esp_now_recv_info_t). This tree builds
+// against arduino-esp32 3.2.1 / IDF 5.4; the older 4.x callback took a bare MAC
+// pointer, so this will not compile unchanged on an older framework.
+static void armOnRecv(const esp_now_recv_info_t* info, const uint8_t* data, int len) {
+  (void)info;
+  if (len <= 0) return;
+
+  // Copy defensively rather than trusting the sender's NUL: len is what the
+  // radio actually delivered, and a missing terminator would otherwise walk off
+  // the end of the driver's buffer.
+  size_t n = (size_t)len;
+  if (n >= sizeof(g_arm_status)) n = sizeof(g_arm_status) - 1;
+  memcpy(g_arm_status, data, n);
+  g_arm_status[n] = '\0';
+  ++g_arm_replies;
+
+  Console.printf("arm -> \"%s\"\n", g_arm_status);
+
+  // Only "busy" latches the interlock. Anything else -- done_*, stopped,
+  // failed:, rejected: -- means the arm is free again, whether it succeeded or
+  // not, so the operator gets their controls back either way.
+  g_arm_busy = (strcmp(g_arm_status, "busy") == 0);
+}
+
+// Bring up WiFi far enough for ESP-NOW, and no further.
+//
+// We never join an AP: ESP-NOW is a link-layer protocol, so STA mode plus a
+// fixed channel is the whole requirement. Not calling WiFi.begin() also means
+// nothing will ever scan or roam us off channel 1 behind our back.
+static bool armLinkBegin() {
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect(false, false);   // ensure no stored AP creds pull us onto another channel
+
+  uint8_t mac[6] = {0};
+  esp_wifi_get_mac(WIFI_IF_STA, mac);
+  Console.printf("ESP-NOW: this board is %02X:%02X:%02X:%02X:%02X:%02X\n",
+                 mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+  if (memcmp(mac, SELF_ESP_MAC, 6) != 0) {
+    Console.printf("  *** EXPECTED %02X:%02X:%02X:%02X:%02X:%02X — WRONG BOARD? ***\n",
+                   SELF_ESP_MAC[0], SELF_ESP_MAC[1], SELF_ESP_MAC[2],
+                   SELF_ESP_MAC[3], SELF_ESP_MAC[4], SELF_ESP_MAC[5]);
+    Console.println("  (harmless if the board was replaced — update SELF_ESP_MAC)");
+  }
+
+  // Channel must be set AFTER the interface is started, or it does not stick.
+  esp_wifi_set_channel(ARM_WIFI_CHANNEL, WIFI_SECOND_CHAN_NONE);
+
+  if (esp_now_init() != ESP_OK) {
+    Console.println("ESP-NOW: init FAILED — arm commands will not be sent");
+    return false;
+  }
+  esp_now_register_send_cb(armOnSent);
+  esp_now_register_recv_cb(armOnRecv);
+
+  esp_now_peer_info_t peer = {};
+  memcpy(peer.peer_addr, ARM_ESP_MAC, 6);
+  peer.channel = ARM_WIFI_CHANNEL;   // 0 would mean "whatever the interface is on"
+  peer.encrypt = false;
+  if (esp_now_add_peer(&peer) != ESP_OK) {
+    Console.println("ESP-NOW: add_peer FAILED — check ARM_ESP_MAC");
+    return false;
+  }
+
+  Console.printf("ESP-NOW: up on channel %u, arm peer %02X:%02X:%02X:%02X:%02X:%02X\n",
+                 ARM_WIFI_CHANNEL, ARM_ESP_MAC[0], ARM_ESP_MAC[1], ARM_ESP_MAC[2],
+                 ARM_ESP_MAC[3], ARM_ESP_MAC[4], ARM_ESP_MAC[5]);
+  return true;
+}
+
+// SENDS THE TRAILING NUL. The arm parses C strings, so the terminator is part of
+// the message, not an artefact of how we happen to store it.
+static void armSend(const char* cmd, const char* what) {
+  if (!g_espnow_up) {
+    Console.printf("arm <- \"%s\" NOT SENT (ESP-NOW down) (%s)\n", cmd, what);
     return;
   }
-  g_armq[g_armq_tail] = c;
-  g_armq_tail = next;
-  Console.printf("arm <- '%c'  (%s)\n", c, what);
+  const esp_err_t e = esp_now_send(ARM_ESP_MAC,
+                                   (const uint8_t*)cmd, strlen(cmd) + 1);
+  Console.printf("arm <- \"%s\"  (%s)%s\n", cmd, what,
+                 e == ESP_OK ? "" : "  [QUEUE FAILED]");
 }
 
-// Release at most one queued byte per gap. Called every loop.
-static void armPump() {
-  if (g_armq_head == g_armq_tail) return;
-  const uint32_t now = millis();
-  if (now - g_arm_last_tx < ARM_GAP_MS) return;
-  g_arm_last_tx = now;
-  Serial1.write((uint8_t)g_armq[g_armq_head]);
-  g_armq_head = (g_armq_head + 1) % ARM_TXQ;
-}
-
-// JOG IS LATCHED ON THE ARM SIDE.
-//
-// The arm's 'e'/'r'/'E'/'R' run until an end-stop or an E-STOP -- there is no
-// "while held" in its serial handler. A bare button press would therefore start
-// motion that does not stop when the operator lets go, which is not what a
-// D-pad feels like it should do.
-//
-// So we synthesise momentary behaviour: send the jog on press, send 's' on
-// release. 's' is the arm's E-STOP and stops every axis, which is the correct
-// conservative choice for a manual jog -- releasing the control should stop
-// motion, not just the motion you were thinking about.
-static char g_jog_active = 0;
-
-static void armJog(char cmd, const char* what) {
-  if (g_jog_active == cmd) return;          // already running this one
-  if (g_jog_active) armSend('s', "stop previous jog");
-  g_jog_active = cmd;
-  armSend(cmd, what);
-}
-
-static void armJogRelease() {
-  if (!g_jog_active) return;
-  g_jog_active = 0;
-  armSend('s', "jog released -> stop");
-}
-
-// ------------------------------------------------------- link diagnostics
-//
-// Every byte the arm has ever sent us. Shown on the status line because the
-// distinction that matters when a link is silent is ABSENT vs WRONG, and only a
-// count separates them:
-//
-//   rx 0            nothing arrives     -> wiring, ground, or the arm is mute
-//   rx climbing, text readable          -> the link works, look elsewhere
-//   rx climbing, output is mojibake     -> baud or ground, not connectivity
-//
-// The arm is extremely chatty (~390 print sites, a ~20 line banner at boot), so
-// a working link cannot be quiet. Zero here after an arm power-cycle is proof.
-static uint32_t g_arm_rx_bytes = 0;
-
-// LOOPBACK: jumper base GPIO1 to GPIO2, disconnect the arm, then press Menu.
-//
-// Separates "our end is broken" from "the wire is broken" without a scope. If
-// this passes, UART1 and both pins are healthy and the fault is downstream of
-// the connector -- which is most of the diagnosis, for the price of one jumper.
-static bool g_link_probe_active = false;
-static uint32_t g_link_probe_started = 0;
-static uint32_t g_link_probe_rx_at_start = 0;
-
-static void linkProbe() {
-  // Bypasses armSend()'s queue deliberately: this must be an immediate, exactly
-  // known transmission, not something released a tick later.
-  while (Serial1.available()) Serial1.read();   // clear stale bytes first
-  g_arm_rx_bytes = 0;
-  g_link_probe_rx_at_start = 0;
-  g_link_probe_started = millis();
-  g_link_probe_active = true;
-
-  // 'm' is the safest probe in the arm's command set: it starts a live switch
-  // monitor that prints immediately and COMMANDS NO MOTION, and it aborts on the
-  // next byte received (EDI-Arm/src/Axis.cpp:639). A reply without moving the
-  // arm is exactly what a link test wants.
-  Serial1.write((uint8_t)'m');
-  Console.println("\nLINK PROBE — sent 'm' to the arm. Listening 1 s...");
-  Console.println("  (loopback test: jumper GPIO1->GPIO2, unplug the arm, press Menu)");
-}
-
-static void linkProbeTick() {
-  if (!g_link_probe_active) return;
-  if (millis() - g_link_probe_started < 1000) return;
-  g_link_probe_active = false;
-
-  const uint32_t got = g_arm_rx_bytes - g_link_probe_rx_at_start;
-  if (got == 0) {
-    Console.println("LINK PROBE: *** NOTHING RECEIVED ***");
-    Console.println("  arm->base is dead. Check, in this order:");
-    Console.println("   1. the CROSSING: base GPIO1 -> arm GPIO44, base GPIO2 -> arm GPIO43");
-    Console.println("      (straight-through ties TX to TX and transmits nothing either way)");
-    Console.println("   2. common GND between the two boards");
-    Console.println("   3. loopback: jumper GPIO1->GPIO2, unplug the arm, press Menu again.");
-    Console.println("      1 byte back = base UART fine, fault is in the wire or the arm.");
-  } else if (got == 1) {
-    Console.println("LINK PROBE: 1 byte back — that is a LOOPBACK echo.");
-    Console.println("  Base UART1 and GPIO1/GPIO2 are healthy. Fault is downstream:");
-    Console.println("  the wiring, or the arm.");
-  } else {
-    Console.printf("LINK PROBE: %lu bytes back — THE ARM IS TALKING. Link is good.\n",
-                   (unsigned long)got);
+// Ordinary commands go through the busy interlock; E-stop does not.
+static void armCommand(const char* cmd, const char* what) {
+  if (g_arm_busy) {
+    Console.printf("arm <- \"%s\" SUPPRESSED — arm reported busy (%s)\n", cmd, what);
+    Console.println("  press again once it reports done/stopped");
+    g_arm_busy = false;   // one press, one refusal: the next press gets through
+    return;
   }
+  armSend(cmd, what);
 }
 
 // ------------------------------------------------------------ dock tick
@@ -664,7 +667,7 @@ static void dockTick() {
     g_sim_aligned = true;
     pcbStopAll();
     Console.println("\n*** ALIGNED (ToF confirmed) — clamping ***");
-    armSend('b', "CLAMP sequence: X cycle, Y cycle, clamp");
+    armSend("grab", "auto-clamp on ToF confirmation");
     // RETURN THE MACHINE TO IDLE, or the next dock cannot start.
     //
     // Confirmation moves it into ClampEngage, and we then stop ticking it -- so
@@ -682,11 +685,6 @@ static void dockTick() {
 static float axisNorm(int32_t v) {
   const float f = (float)v / 512.0f;
   return (f > -0.12f && f < 0.12f) ? 0.0f : constrain(f, -1.0f, 1.0f);
-}
-
-static void announceAligned() {
-  Console.printf("\n*** SIMULATED ALIGNED = %s  (NOT a real measurement) ***\n",
-                 g_sim_aligned ? "TRUE" : "false");
 }
 
 // Spin each wheel in turn so the operator can see which physical wheel is which
@@ -731,12 +729,6 @@ static void printCal() {
 static void handleConsole() {
   while (Serial.available()) {
     const char c = (char)Serial.read();
-    // Passthrough wins over every base command except the toggle itself,
-    // otherwise the arm's 'm', 'p', 'x' etc. would be eaten by the base.
-    if (g_arm_passthrough && c != '>') {
-      Serial1.write((uint8_t)c);
-      continue;
-    }
     if (c >= '1' && c <= '4') {
       g_cal_sel = c - '1';
       Console.printf("cal wheel -> %s\n", WHEEL[g_cal_sel]);
@@ -763,35 +755,17 @@ static void handleConsole() {
                 Console.printf("%s invert -> %d\n", WHEEL[g_cal_sel],
                                (int)g_invert[g_cal_sel]);
                 break;
-      case 'a': g_sim_aligned = !g_sim_aligned; announceAligned(); break;
-      // Safe to poll here: the docking tick reads at 50 Hz and this is a single
-      // extra frame from the same bus, on the same thread.
-      case 'j': g_dpad_drive = !g_dpad_drive;
-                armJogRelease();   // whichever way we just switched
-                Console.printf("D-pad -> %s\n", g_dpad_drive
-                               ? "DRIVE (8-way translation)" : "ARM JOG");
-                break;
       case 't': tofPoll(); tofPrint(); break;
       case 'T': g_tof_stream = !g_tof_stream;
                 Console.printf("ToF stream %s\n", g_tof_stream ? "ON (5 Hz)" : "off");
                 break;
-      case 'x': pcbStopAll(); armSend('s', "E-STOP arm"); g_jog_active = 0;
+      case 'x': pcbStopAll(); armSend("estop", "E-STOP arm + wheels");
                 Console.println("STOP (wheels + arm)"); break;
-      // Full access to the arm's own command set without duplicating it here --
-      // it has ~30 single-character commands and mirroring them would just
-      // create a second copy to keep in sync.
-      case '>': g_arm_passthrough = !g_arm_passthrough;
-                Console.printf("arm passthrough %s — every key now goes %s\n",
-                               g_arm_passthrough ? "ON" : "off",
-                               g_arm_passthrough ? "TO THE ARM" : "to the base");
-                break;
       case '?':
         Console.println("bluetooth : P pair on | O pair off | F forget keys");
         Console.println("calibrate : m identify | 1-4 select | v flip | p print");
-        Console.println("            a toggle SIMULATED aligned | x STOP all");
+        Console.println("            x STOP all");
         Console.println("sensors   : t read the 4 corners once | T stream at 5 Hz");
-        Console.println("drive     : j D-pad = 8-way DRIVE <-> arm jog");
-        Console.println("arm       : > toggle passthrough (then keys go to the arm)");
         break;
       default: break;
     }
@@ -864,8 +838,10 @@ void setup() {
   if (!g_tof_ok)
     Console.println("  docking disabled (needs all four); streaming still works on whatever is up");
 
-  // Link to ESP-ARM. RX first, then TX, matching HardwareSerial's signature.
-  Serial1.begin(115200, SERIAL_8N1, ARM_RX, ARM_TX);
+  // Link to ESP-ARM over ESP-NOW. Brought up AFTER the ToF so a WiFi failure
+  // cannot take the sensors down with it -- driving and docking must survive a
+  // dead arm link, which is exactly the case this replaced.
+  g_espnow_up = armLinkBegin();
 
   BP32.setup(&onConnect, &onDisconnect);
   BP32.enableVirtualDevice(false);   // no phantom mouse device from the pad
@@ -873,21 +849,15 @@ void setup() {
   Console.println("\nWheel Drive PCB — gamepad drive (pins.h / netlist map)");
   Console.printf("  SV  %u %u %u %u\n", pins::kWheelSV[0], pins::kWheelSV[1],
                  pins::kWheelSV[2], pins::kWheelSV[3]);
-  Console.printf("  arm link on GPIO%u(TX)/GPIO%u(RX) -> arm UART0 @115200\n",
-                 ARM_TX, ARM_RX);
   Console.println("  DRIVE  left stick move/strafe | right stick rotate");
   Console.println("         LB / RB  slower / faster (ceiling 40%)");
-  Console.println("         B  STOP everything (wheels + arm E-STOP)");
   Console.println("  D-PAD  8-way DRIVE: U/D forward/back, L/R strafe, corners diagonal");
-  Console.println("         ('j' switches it to arm jog X/Y)");
-  Console.println("  DOCK   A  run real alignment -> auto-clamp on confirm");
-  Console.println("         Y  override: declare aligned by eye -> clamp now");
-  Console.println("         X  release / stow");
-  Console.println("         LT flip X | RT flip Y");
+  Console.println("  DOCK   A  run real alignment -> auto-clamp (\"grab\") on confirm");
+  Console.println("  ARM    X  grab      Y  release      Menu  home_setup");
+  Console.println("         B  E-STOP — arm AND local wheels, always sends");
   Console.println("  SENSE  L3 (left stick click)  toggle ToF stream");
   Console.println("         R3 (right stick click) read the 4 corners once");
-  Console.println("  LINK   Menu  probe the arm link (sends 'm', no motion)");
-  Console.println("         watch 'arm-rx' on the status line — 0 means nothing arrives");
+  Console.println("         View  capture per-corner ToF offsets");
   Console.println("  NOTE   the serial console is OUTPUT ONLY — Bluepad32 owns");
   Console.println("         stdin, so typed keys do nothing here. Use the pad.");
   Console.printf("  limit %.2f  --  WHEELS OFF THE GROUND FIRST\n", LIMITS[g_limit_idx]);
@@ -899,14 +869,8 @@ void loop() {
   handleConsole();
   BP32.update();
 
-  // Relay anything the arm says, so its replies and errors reach the operator
-  // instead of vanishing into a wire nobody is watching.
-  while (Serial1.available()) {
-    Console.write((char)Serial1.read());
-    ++g_arm_rx_bytes;
-  }
-  armPump();        // release at most one queued byte per ARM_GAP_MS
-  linkProbeTick();  // close out a Menu-button probe once its window expires
+  // Arm replies arrive on an ESP-NOW callback, not by polling, so there is
+   // nothing to service here.
 
   float vx = 0, vy = 0, w = 0;
   bool stop = false;
@@ -928,12 +892,10 @@ void loop() {
     const bool l2 = g_ctl->l2(), r2 = g_ctl->r2();
     const bool tl = g_ctl->thumbL(), tr = g_ctl->thumbR();
     const bool sel = g_ctl->miscSelect();   // View button — ToF offset capture
-    const bool menu = g_ctl->miscStart();   // Menu button — arm link probe
+    const bool menu = g_ctl->miscStart();   // Menu button — arm home/setup
 
-    // Menu: probe the arm link. On the pad because the serial console cannot
-    // receive input (see handleConsole), and Menu is the last free button.
     static bool pMenu = false;
-    if (menu && !pMenu) linkProbe();
+    if (menu && !pMenu) armCommand("home_setup", "arm: home and set up");
     pMenu = menu;
 
     // View: capture per-corner offsets against whatever is overhead right now.
@@ -1010,32 +972,25 @@ void loop() {
       }
     }
 
-    if (x && !pX) armSend('c', "RELEASE: unload, flip down, stow home");
-    if (l2 && !pL2) armSend('f', "flip X then retract");
-    if (r2 && !pR2) armSend('F', "flip Y then retract");
+    // X = grab, Y = release. LT/RT no longer send anything: the ESP-NOW
+    // protocol is four commands, and the old per-axis flip/jog characters do not
+    // exist on the arm any more.
+    if (x && !pX) armCommand("grab", "arm: clamp the trolley");
 
     // --- stop everything: drivetrain AND arm ---
     // B already stopped the wheels; sending the arm's E-STOP on the same button
     // means one control the operator can reach without thinking about which
     // subsystem is misbehaving.
     if (b && !pB) {
-      g_jog_active = 0;
       if (g_docking) { g_docking = false; g_sm.handleCommand(Command::Abort); }
-      armSend('s', "E-STOP all arm motors");
+      // BYPASSES armCommand's busy interlock on purpose. An E-stop that can be
+      // suppressed by a status message is not an E-stop. The wheels are already
+      // stopped further down by the `stop` branch; this is the other board.
+      armSend("estop", "E-STOP: arm + local wheels");
+      g_arm_busy = false;   // whatever it was doing, it is not doing it now
     }
 
-    // --- Y: manual override. Declare aligned by eye, clamp now. ---
-    // Kept deliberately: when the ToF disagree with reality, or when exercising
-    // the arm without positioning the robot, this is the way through.
-    if (y && !pY) {
-      if (g_docking) {
-        Console.println("override refused — a real dock is running. Press B first.");
-      } else {
-        g_sim_aligned = true;
-        announceAligned();
-        armSend('b', "CLAMP sequence: X cycle, Y cycle, clamp");
-      }
-    }
+    if (y && !pY) armCommand("release", "arm: unload and stow");
 
     pL1 = l1; pR1 = r1; pA = a; pX = x; pY = y; pB = b; pL2 = l2; pR2 = r2;
     pTL = tl; pTR = tr;
@@ -1059,17 +1014,10 @@ void loop() {
         vy = dvy;
         w = 0.0f;
       }
-      armJogRelease();   // never leave a latched jog running after a mode swap
-    } else {
-      // --- D-pad jogs the arm axes (momentary, see armJog) ---
-      if      (dpad & DPAD_UP)    armJog('e', "jog X extend");
-      else if (dpad & DPAD_DOWN)  armJog('r', "jog X retract");
-      else if (dpad & DPAD_RIGHT) armJog('E', "jog Y extend");
-      else if (dpad & DPAD_LEFT)  armJog('R', "jog Y retract");
-      else                        armJogRelease();
     }
-  } else {
-    armJogRelease();   // pad gone: never leave a latched jog running
+    // The old ARM JOG mode is gone with the UART: the arm's per-axis jog
+    // characters are not part of the four-command ESP-NOW protocol, so the D-pad
+    // is drive-only now and g_dpad_drive has nothing to toggle between.
   }
 
   const float limit = LIMITS[g_limit_idx];
@@ -1110,17 +1058,17 @@ void loop() {
     // equal and non-zero -- that is the single line that separates "the mix is
     // wrong" from "a corner is not pulling", and unlabelled columns make it far
     // too easy to read the pair the wrong way round.
-    // arm-rx is here rather than behind a command because a dead link is
-    // INVISIBLE otherwise: the base happily transmits into an open circuit and
-    // reports success. A counter stuck at 0 while the arm is powered is the
-    // whole diagnosis, and it costs one field.
+    // arm-rx counts REPLIES, and it earns its column: ESP-NOW's send callback
+    // only tells you the arm's radio acked the frame, not that the arm parsed or
+    // acted on it. A counter stuck at 0 while sends "succeed" is the difference
+    // between a link that works and one that merely transmits.
     Console.printf("[%s]%s lim %.2f  vx%+.2f vy%+.2f w%+.2f  "
                    "FL%4u FR%4u RL%4u RR%4u  arm-rx %lu%s\n",
-                   live ? "live" : "NO PAD", g_sim_aligned ? " [SIM-ALIGNED]" : "",
+                   live ? "live" : "NO PAD", g_sim_aligned ? " [ALIGNED]" : "",
                    limit, vx, vy, w,
                    g_duty[0], g_duty[1], g_duty[2], g_duty[3],
-                   (unsigned long)g_arm_rx_bytes,
-                   g_docking ? g_sm.stateName() : g_jog_active ? "  [ARM JOGGING]" : "");
+                   (unsigned long)g_arm_replies,
+                   g_docking ? g_sm.stateName() : g_arm_busy ? "  [ARM BUSY]" : "");
   }
 
   delay(10);  // yield for Bluepad32 / BTstack

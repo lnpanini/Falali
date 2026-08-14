@@ -70,8 +70,8 @@ constexpr uint8_t kWheelALARM = kNoPin;
 // On the fabricated board every one of those is now a wheel or encoder signal:
 //   GPIO11=RR F/R  12=RR EN  13=RR BRK  14=Encoder RR (now free)
 //   GPIO21=FR SV   47=FR F/R
-//   GPIO1/2 = FL/FR encoder headers, and NOW THE ARM UART LINK -- see below.
-// The clamp would fight the rear-right wheel, or the arm link.
+//   GPIO1/2 = FL/FR encoder headers (free again since the arm link went radio)
+// The clamp would fight the rear-right wheel.
 constexpr uint8_t kClampRPWM     = kNoPin;
 constexpr uint8_t kClampLPWM     = kNoPin;
 constexpr uint8_t kClampEN       = kNoPin;
@@ -135,22 +135,17 @@ constexpr uint8_t kMuxAddr = 0x70;
 // commented out, because a pin table that describes hardware nobody drives is
 // indistinguishable from one that describes hardware somebody does.
 //
-// *** GPIO1 AND GPIO2 ARE NOW THE ARM UART LINK. ***
+// All four encoder pins -- GPIO1, 2, 3 and 14 -- are free again as of
+// 2026-08-14, when the base<->arm link moved from UART on GPIO1/2 to ESP-NOW.
+// Caveats if anything claims them:
 //
-// The board routes GPIO1/GPIO2 to the FL and FR encoder connectors (they were
-// the AS5600 analog-OUT fallback). bench_ble drives them as UART1 TX/RX to
-// ESP-ARM, so THOSE TWO HEADERS MUST STAY UNPOPULATED: an AS5600's OUT pin is an
-// actively driven analog output, and plugging one in puts a second transmitter
-// on the UART's TX line and a DC bias on its RX. The link would fail with
-// wiring that looks, and measures, entirely correct.
-//
-//   base GPIO1 (TX) --> arm GPIO44 (RX)
-//   base GPIO2 (RX) <-- arm GPIO43 (TX)
-//   GND <-> GND
-//
-// The other two encoder pins, GPIO3 and GPIO14, are simply free now. Both carry
-// caveats if anything else claims them: GPIO3 is a strapping pin (JTAG source
-// select) and GPIO14 is ADC2, which stops working once WiFi is enabled.
+//   GPIO1/2   routed to the FL/FR encoder HEADERS. Safe to drive as long as
+//             nothing is plugged into those headers -- an AS5600's OUT pin is an
+//             actively driven analog output and would fight whatever else is on
+//             the net.
+//   GPIO3     strapping pin (JTAG source select)
+//   GPIO14    ADC2 -- stops working the moment WiFi is enabled, and bench_ble
+//             now enables WiFi for ESP-NOW. Treat it as digital-only.
 
 // --- Free on the board, available if anything needs relocating ---
 //   GPIO0, 3, 14, 35, 36, 37, 43, 44, 45, 46

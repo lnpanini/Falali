@@ -63,7 +63,7 @@ LED. `pins::kWheelALARM == kNoPin`.
 |---|---|---|
 | ToF XSHUT FL/FR/RL/RR | 4, 5, 6, 7 | per-sensor reset for address assignment |
 | I²C SDA / SCL | 8 / 9 | one bus for everything |
-| **Arm UART1 TX / RX** | **1 / 2** | to ESP-ARM GPIO44 / GPIO43 — see §5. Formerly the FL/FR encoder headers, which must stay unpopulated |
+| *(none)* | 1, 2, 3, 14 | freed by the encoder removal; the arm link went to ESP-NOW 2026-08-14 |
 
 ### Reserved and free
 
@@ -72,8 +72,8 @@ LED. `pins::kWheelALARM == kNoPin`.
 | 26–37 | flash + octal PSRAM — **board correctly leaves 35/36/37 unconnected** |
 | 19, 20 | native USB — unconnected |
 | 0, 45, 46 | strapping — unconnected |
-| 3, 14 | freed by the encoder removal — 3 is strapping (JTAG select), 14 is ADC2 (dead once WiFi is on) |
-| **43, 44** | UART0 — free **only** in a native-USB-CDC build. `bench_ble` is not one (`CONFIG_ESP_CONSOLE_UART_NUM=0`), which is why the arm link uses 1/2 |
+| 1, 2, 3, 14 | free — 3 is strapping (JTAG select), 14 is ADC2 and **`bench_ble` now enables WiFi**, so treat 14 as digital-only |
+| **43, 44** | UART0 — free **only** in a native-USB-CDC build. `bench_ble` is not one (`CONFIG_ESP_CONSOLE_UART_NUM=0`) |
 
 26 GPIO used, no duplicates, no reserved-pin conflicts. Verified programmatically.
 
@@ -195,38 +195,42 @@ switching. Nothing was damaged — currents were microamps throughout.
 | BNO085 IMU | `0x4A` | — |
 | ADS1115 | **`0x48`** | ADDR → GND. **Do not leave floating or tie to SDA** — that gives `0x4A` and collides with the IMU |
 
-### Base ↔ ESP-ARM serial link
+### Base ↔ ESP-ARM link: ESP-NOW
 
-The base drives the arm with single characters over **UART1 on GPIO1/GPIO2**.
+The three-wire UART on GPIO1/2 never passed a byte and was retired **2026-08-14**.
+Commands now go by radio.
+
+| | |
+|---|---|
+| Transport | ESP-NOW, WiFi **channel 1**, STA mode, no AP |
+| Payload | plain text, **NUL-terminated** (`strlen(cmd) + 1`) |
+| Base MAC | `14:C1:9F:3B:7B:E4` — checked at boot against `SELF_ESP_MAC` |
+| Arm MAC | `3C:DC:75:5C:8B:08` |
+
+**Four commands, and no more.** The arm is already flashed to parse exactly
+these, so the strings are an interface, not an implementation detail:
 
 ```
-base GPIO1 (TX)  ────────►  arm GPIO44 (RX)
-base GPIO2 (RX)  ◄────────  arm GPIO43 (TX)
-base GND         ─────────  arm GND
+grab        release        home_setup        estop
 ```
 
-**The crossing is the whole thing.** Straight-through ties TX to TX and RX to RX:
-two outputs driving each other, two inputs floating, nothing transmitted either
-way — and it measures perfectly on a continuity test.
+Replies arrive as text on a callback: `done_grab`, `done_release`, `done_home`,
+`busy`, `stopped`, `failed:<reason>`, `rejected:<reason>`.
 
-Three constraints that are not obvious from either codebase:
+**What this cost.** Bluepad32/BTstack owns the 2.4 GHz radio for the gamepad, and
+WiFi STA now shares it through the coexistence scheduler. Expect the pad to be
+marginally less responsive and to drop slightly more often than on the UART
+build. That is a real price paid to avoid three wires — if it becomes
+intolerable, the answer is to fix the wiring, not to tune the radio.
 
-1. **GPIO1/GPIO2 are the FL/FR encoder headers.** Leave them unpopulated. An
-   AS5600's analog `OUT` is actively driven and would fight the UART's TX.
-2. **The arm's `Serial` is UART0 on GPIO43/44, not native USB.** Its
-   `platformio.ini` leaves `build_flags` empty, so `ARDUINO_USB_CDC_ON_BOOT`
-   defaults to 0 and no CDC object is linked into the binary at all. Plugging
-   into the DevKitC's *native USB* port gives a port that enumerates, stays
-   silent, and ignores everything typed at it.
-3. **The arm discards anything arriving close behind a command.** Its handler
-   reads one character then flushes the rest of the buffer, so two bytes sent
-   back to back lose the second. The base therefore paces its transmissions
-   (`ARM_GAP_MS` in `sketch_pcb.cpp`) rather than writing directly.
+**Busy interlock.** `busy` from the arm suppresses the *next* ordinary command
+and then clears, so one press gets one refusal rather than a queue that fires
+against a state that has since changed. E-stop is exempt and always sends: an
+E-stop a status message can suppress is not an E-stop.
 
-Diagnosing a silent link: the arm prints a ~20-line banner at boot unconditionally,
-so power-cycling it with the base monitor open tests the arm→base direction for
-free. The base's status line carries an `arm-rx` byte counter, and the **Menu**
-button runs an active probe.
+**Gone with the UART.** The arm's per-axis jog (`e`/`r`/`E`/`R`) and flip
+(`f`/`F`) characters are not part of the four-command protocol, so D-pad arm jog
+and the LT/RT flips no longer exist. The D-pad is drive-only.
 
 ### Encoders — removed 2026-08-13
 
@@ -348,6 +352,7 @@ the DevKitC socket, J3 and the standoffs.
 | 2026-08-05 | Encoders via TCA9548A rather than AS5600L, to keep the existing AS5600 stock. |
 | 2026-08-13 | **Encoders abandoned.** Never worked on the fabricated board; no wheel-speed feedback, current sense is the only drivetrain fault signal. |
 | 2026-08-13 | Base↔arm link on UART1 GPIO1/2 — *not* GPIO43/44, which `bench_ble`'s IDF console occupies. |
+| 2026-08-14 | **Base↔arm moves to ESP-NOW** (channel 1, plain text). The UART never passed a byte. Accepts BT/WiFi coexistence on the gamepad radio as the price. |
 
 ## 9. Open items
 

@@ -497,8 +497,34 @@ static void armOnSent(const uint8_t* mac, esp_now_send_status_t status) {
 // against arduino-esp32 3.2.1 / IDF 5.4; the older 4.x callback took a bare MAC
 // pointer, so this will not compile unchanged on an older framework.
 static void armOnRecv(const esp_now_recv_info_t* info, const uint8_t* data, int len) {
-  (void)info;
-  if (len <= 0) return;
+  if (len <= 0 || info == nullptr) return;
+
+  // *** FILTER BY SENDER. THIS IS NOT OPTIONAL. ***
+  //
+  // ESP-NOW hands us every frame the radio accepts, not just our peer's. On the
+  // assembled robot that turned out to be ~15 frames per second of binary from
+  // something else on channel 1 (observed 2026-08-14), each one printed as a
+  // garbled "arm ->" line.
+  //
+  // The console noise was the harmless part. Every one of those frames also ran
+  // the busy test below, and since none of them equalled "busy" they each
+  // CLEARED THE INTERLOCK -- so the arm could be mid-workflow and the base would
+  // cheerfully fire the next command into its single-slot buffer. The arm's own
+  // receiver filters on sender for exactly this reason; this side did not.
+  if (memcmp(info->src_addr, ARM_ESP_MAC, 6) != 0) {
+    // Report each unfamiliar sender ONCE. Silently dropping would leave the same
+    // mystery that produced this bug; printing every frame would recreate the
+    // flood we are fixing.
+    static uint8_t last_stranger[6] = {0};
+    if (memcmp(info->src_addr, last_stranger, 6) != 0) {
+      memcpy(last_stranger, info->src_addr, 6);
+      const uint8_t* m = info->src_addr;
+      Console.printf("ESP-NOW: ignoring %02X:%02X:%02X:%02X:%02X:%02X "
+                     "(not the arm) — %d bytes\n",
+                     m[0], m[1], m[2], m[3], m[4], m[5], len);
+    }
+    return;
+  }
 
   // Copy defensively rather than trusting the sender's NUL: len is what the
   // radio actually delivered, and a missing terminator would otherwise walk off

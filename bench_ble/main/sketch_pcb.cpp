@@ -28,6 +28,7 @@
 //   DOCK    A            run the real ToF alignment, auto-grab on confirm
 //   ARM     X  grab      Y  release         Menu  home_setup
 //           LT (hold) + D-pad  jog X/Y, held = moves, released = stops
+//           RT (hold) + D-pad  flip pairs, one shot, ~2 s, no reply
 //   STOP    B            E-STOP: arm AND local wheels
 //   SENSE   L3 ToF stream    R3 read corners    View capture ToF offsets
 //
@@ -649,12 +650,29 @@ static void armSend(const char* cmd, const char* what) {
 }
 
 // One queued command per gap. Called every loop.
+// SERVO COMMANDS NEED A MUCH LONGER GAP THAN THE REST.
+//
+// moveServoPairSlow ramps 1 degree per 20 ms across a 90 degree throw, and it is
+// a plain blocking loop -- the arm's loop() does not run for ~1.8 s. Anything we
+// send during that window lands in the one-slot mailbox and is overwritten by
+// whatever arrives next, so the 40 ms gap that suits jogs would lose every
+// command but the last.
+static constexpr uint32_t ARM_SERVO_GAP_MS = 2200;
+static uint32_t g_arm_gap = ARM_GAP_MS;
+
+static bool isServoCommand(const char* c) {
+  return strcmp(c, "fx") == 0 || strcmp(c, "fy") == 0 ||
+         strcmp(c, "ex") == 0 || strcmp(c, "ey") == 0;
+}
+
 static void armPump() {
   if (g_armq_head == g_armq_tail) return;
   const uint32_t now = millis();
-  if (now - g_arm_last_tx < ARM_GAP_MS) return;
+  if (now - g_arm_last_tx < g_arm_gap) return;
   g_arm_last_tx = now;
-  armTransmit(g_armq[g_armq_head]);
+  const char* cmd = g_armq[g_armq_head];
+  g_arm_gap = isServoCommand(cmd) ? ARM_SERVO_GAP_MS : ARM_GAP_MS;
+  armTransmit(cmd);
   g_armq_head = (g_armq_head + 1) % ARM_TXQ;
 }
 
@@ -706,6 +724,12 @@ static bool g_jog_release_pending = false;
 // Safe to let it overrun the button: the arm's jog stops itself on the limit
 // switch or at 3 s regardless of what we do.
 static constexpr uint32_t ARM_JOG_MIN_MS = 250;
+
+// Last D-pad direction acted on while RT is held. Flips are ONE-SHOT, not held:
+// each is a complete 90 degree throw, so repeating one while the button is down
+// would just re-issue a move the arm has already finished, and idempotently
+// ignores anyway (setXAxisFlipped returns early if already there).
+static uint8_t g_flip_last = 0;
 
 static void armJog(char which, const char* cmd, const char* what) {
   if (g_jog_active == which) {
@@ -1030,8 +1054,11 @@ void setup() {
   Console.println("  D-PAD  8-way DRIVE: U/D forward/back, L/R strafe, corners diagonal");
   Console.println("  DOCK   A  run real alignment -> auto-clamp (\"grab\") on confirm");
   Console.println("  ARM    X  grab      Y  release      Menu  home_setup");
-  Console.println("         LT (hold) + D-pad = JOG: U/D axis X, L/R axis Y");
+  Console.println("         LT (hold) + D-pad = JOG:  U/D axis X, L/R axis Y");
   Console.println("           held moves, released stops; arm self-stops at 3 s");
+  Console.println("         RT (hold) + D-pad = FLIP: U/D X pair, L/R Y pair");
+  Console.println("           up/right = flip out, down/left = home. ~2 s each,");
+  Console.println("           one shot per press, and the arm sends no reply");
   Console.println("         B  E-STOP — arm AND local wheels, always sends");
   Console.println("  SENSE  L3 (left stick click)  toggle ToF stream");
   Console.println("         R3 (right stick click) read the 4 corners once");
@@ -1191,10 +1218,17 @@ void loop() {
     // extending an arm under a trolley is the kind of surprise a mode flag
     // invites. Holding LT makes the choice explicit at the moment of use, and
     // releasing it releases the jog.
+    // TWO HELD MODIFIERS, and LT wins if both are down.
+    //   LT + D-pad  travel jog   (held = moves)
+    //   RT + D-pad  flipper      (one shot per press)
+    // Held rather than toggled for the same reason as before: a mode with no
+    // visible state on the robot turns "drive forward" into "extend an arm".
     const bool jog_mode = l2;
+    const bool flip_mode = r2 && !l2;
     if (!jog_mode) armJogRelease();   // leaving jog mode must not leave it running
+    if (!flip_mode) g_flip_last = 0;  // re-arm the one-shot on release
 
-    if (g_dpad_drive && !jog_mode) {
+    if (g_dpad_drive && !jog_mode && !flip_mode) {
       // --- D-pad: 8-way translation at exactly +/-1 per axis ---
       //
       // OVERRIDES the sticks rather than summing with them, and forces omega to
@@ -1221,6 +1255,25 @@ void loop() {
       else if (dpad & DPAD_RIGHT) armJog('E', "yext", "jog Y extend");
       else if (dpad & DPAD_LEFT)  armJog('R', "yret", "jog Y retract");
       else                        armJogRelease();
+    } else if (flip_mode) {
+      // U/D = X pair, L/R = Y pair -- the same axis mapping as the jog, so the
+      // D-pad means the same thing under either modifier.
+      //
+      // "flip" drives the pair to SERVO_FLIPPED_ANGLE (80), "home" returns it to
+      // SERVO_HOME_ANGLE (170). Only pairs are reachable: the arm exposes no
+      // per-servo command, so all four flippers cannot be driven individually
+      // without a change on that side.
+      //
+      // armSend, NOT armCommand: these produce NO reply of any kind, so routing
+      // them through the busy interlock would latch it until the 45 s timeout.
+      const uint8_t d = dpad & (DPAD_UP | DPAD_DOWN | DPAD_LEFT | DPAD_RIGHT);
+      if (d != g_flip_last) {
+        g_flip_last = d;
+        if      (d & DPAD_UP)    armSend("fx", "flip X pair OUT (170->80)");
+        else if (d & DPAD_DOWN)  armSend("ex", "flip X pair HOME (80->170)");
+        else if (d & DPAD_RIGHT) armSend("fy", "flip Y pair OUT (170->80)");
+        else if (d & DPAD_LEFT)  armSend("ey", "flip Y pair HOME (80->170)");
+      }
     }
   } else {
     armJogRelease();   // pad gone: never leave a jog running

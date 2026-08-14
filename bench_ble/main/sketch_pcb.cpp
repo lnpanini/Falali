@@ -27,6 +27,7 @@
 //           D-pad        8-way translation  LB / RB        slower / faster
 //   DOCK    A            run the real ToF alignment, auto-grab on confirm
 //   ARM     X  grab      Y  release         Menu  home_setup
+//           LT (hold) + D-pad  jog X/Y, held = moves, released = stops
 //   STOP    B            E-STOP: arm AND local wheels
 //   SENSE   L3 ToF stream    R3 read corners    View capture ToF offsets
 //
@@ -588,6 +589,44 @@ static void armCommand(const char* cmd, const char* what) {
   armSend(cmd, what);
 }
 
+// ---------------------------------------------------------------- arm jog
+//
+// HELD = MOVES, RELEASED = STOPS, synthesised from two one-shot commands.
+//
+// The arm's jog is self-limiting: startMotorJog runs the travel motor until the
+// relevant limit switch blocks or BTS_MOTOR_JOG_TIMEOUT_MS (3 s) elapses, then
+// stops itself. So a press alone is already safe -- the release only exists to
+// stop it EARLY, and to make the control feel like a D-pad rather than a
+// fire-and-forget burst.
+//
+// BYPASSES armCommand's interlock in both directions, deliberately:
+//
+//   the jog itself, because a jog IS the arm being busy (xJog.active sets
+//   isBusyForWirelessCommand), so routing it through the latch would refuse
+//   every jog after the first;
+//
+//   the stop, because "mstop" is hoisted above the arm's own busy check for
+//   exactly the same reason -- see the comment at Arm_code main.cpp:867. A stop
+//   that can be refused while something is moving is not a stop.
+//
+// Re-sending the same direction is filtered here rather than at the arm: its
+// receive buffer is a single slot, so a command per loop iteration would keep
+// overwriting the slot and the jog would never be serviced.
+static char g_jog_active = 0;
+
+static void armJog(char which, const char* cmd, const char* what) {
+  if (g_jog_active == which) return;          // already running this direction
+  if (g_jog_active) armSend("mstop", "stop previous jog");
+  g_jog_active = which;
+  armSend(cmd, what);
+}
+
+static void armJogRelease() {
+  if (!g_jog_active) return;
+  g_jog_active = 0;
+  armSend("mstop", "jog released -> stop");
+}
+
 // Release the latch if the arm never answers. See ARM_BUSY_TIMEOUT_MS.
 static void armBusyTick() {
   if (!g_arm_busy) return;
@@ -885,6 +924,8 @@ void setup() {
   Console.println("  D-PAD  8-way DRIVE: U/D forward/back, L/R strafe, corners diagonal");
   Console.println("  DOCK   A  run real alignment -> auto-clamp (\"grab\") on confirm");
   Console.println("  ARM    X  grab      Y  release      Menu  home_setup");
+  Console.println("         LT (hold) + D-pad = JOG: U/D axis X, L/R axis Y");
+  Console.println("           held moves, released stops; arm self-stops at 3 s");
   Console.println("         B  E-STOP — arm AND local wheels, always sends");
   Console.println("  SENSE  L3 (left stick click)  toggle ToF stream");
   Console.println("         R3 (right stick click) read the 4 corners once");
@@ -1035,7 +1076,17 @@ void loop() {
     pL1 = l1; pR1 = r1; pA = a; pX = x; pY = y; pB = b; pL2 = l2; pR2 = r2;
     pTL = tl; pTR = tr;
 
-    if (g_dpad_drive) {
+    // D-PAD MODE. LT held = arm jog, otherwise drive.
+    //
+    // A HELD MODIFIER rather than a toggle, because a toggle has no visible
+    // state on the robot: pressing D-pad-up expecting to drive and instead
+    // extending an arm under a trolley is the kind of surprise a mode flag
+    // invites. Holding LT makes the choice explicit at the moment of use, and
+    // releasing it releases the jog.
+    const bool jog_mode = l2;
+    if (!jog_mode) armJogRelease();   // leaving jog mode must not leave it running
+
+    if (g_dpad_drive && !jog_mode) {
       // --- D-pad: 8-way translation at exactly +/-1 per axis ---
       //
       // OVERRIDES the sticks rather than summing with them, and forces omega to
@@ -1054,10 +1105,17 @@ void loop() {
         vy = dvy;
         w = 0.0f;
       }
+    } else if (jog_mode) {
+      // U/D = X axis, L/R = Y axis. Extend away from the robot, retract toward
+      // it, matching how the D-pad reads when driving.
+      if      (dpad & DPAD_UP)    armJog('e', "xext", "jog X extend");
+      else if (dpad & DPAD_DOWN)  armJog('r', "xret", "jog X retract");
+      else if (dpad & DPAD_RIGHT) armJog('E', "yext", "jog Y extend");
+      else if (dpad & DPAD_LEFT)  armJog('R', "yret", "jog Y retract");
+      else                        armJogRelease();
     }
-    // The old ARM JOG mode is gone with the UART: the arm's per-axis jog
-    // characters are not part of the four-command ESP-NOW protocol, so the D-pad
-    // is drive-only now and g_dpad_drive has nothing to toggle between.
+  } else {
+    armJogRelease();   // pad gone: never leave a jog running
   }
 
   const float limit = LIMITS[g_limit_idx];

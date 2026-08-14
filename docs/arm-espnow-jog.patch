@@ -1,0 +1,44 @@
+diff --git a/src/main.cpp b/src/main.cpp
+index 820fc1b..d9a53ac 100644
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -864,6 +864,19 @@ void processWirelessCommand(String command) {
+     return;
+   }
+ 
++  // mstop sits ABOVE the busy check, next to estop, and it has to.
++  //
++  // A running jog sets xJog.active / yJog.active, which makes
++  // isBusyForWirelessCommand() true -- so a stop arriving from the remote would
++  // be answered "busy" and refused, and the jog would run its full 3 s timeout
++  // regardless. That silently turns a held-to-move control into a fixed burst.
++  if (command == "mstop") {
++    stopTravelMotors();
++    activeRemoteWorkflow = RemoteWorkflow::None;
++    sendWirelessStatus("stopped");
++    return;
++  }
++
+   if (isBusyForWirelessCommand()) {
+     sendWirelessStatus("busy");
+     return;
+@@ -888,7 +901,18 @@ void processWirelessCommand(String command) {
+       sendWirelessStatus("rejected:home_setup");
+     }
+   } else {
+-    sendWirelessStatus("rejected:unknown_command");
++    // FALL THROUGH TO THE SERIAL COMMAND SET rather than rejecting.
++    //
++    // processCommand() already implements the manual jogs (xext/xret/yext/yret)
++    // and everything else this firmware can do. They were unreachable from the
++    // radio only because the two handlers are separate functions. One line
++    // exposes the lot -- and the next command added to the serial set works
++    // remotely for free, instead of needing a matching string compare here.
++    //
++    // This does mean clamp, limit-test and the raw servo sweeps are now reachable
++    // over the air. Fine between two paired boards on a bench; reconsider if this
++    // ever runs somewhere a stray packet would matter.
++    processCommand(command);
+   }
+ }
+ 

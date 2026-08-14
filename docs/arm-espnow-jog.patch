@@ -1,3 +1,99 @@
+diff --git a/src/MotorController.cpp b/src/MotorController.cpp
+index cd4cf5f..22cc27a 100644
+--- a/src/MotorController.cpp
++++ b/src/MotorController.cpp
+@@ -1,7 +1,8 @@
+ #include "MotorController.h"
+ 
+ MotorController::MotorController()
+-    : pwm_(PCA9685_ADDRESS), xAxisFlipped_(false), yAxisFlipped_(false) {
++    : pwm_(PCA9685_ADDRESS), xAxisFlipped_(false), yAxisFlipped_(false),
++      flipStateKnown_(false) {
+   for (int i = 0; i < SERVO_COUNT; i++) {
+     servoAngle_[i] = SERVO_HOME_ANGLE;
+   }
+@@ -20,6 +21,11 @@ void MotorController::begin(Stream &log) {
+ 
+   delay(500);
+ 
++  // begin() drives all four to home and holds them, so the cache is true again.
++  xAxisFlipped_ = false;
++  yAxisFlipped_ = false;
++  flipStateKnown_ = true;
++
+   log.println("Servo control ready.");
+ }
+ 
+@@ -51,11 +57,21 @@ void MotorController::stopAll() {
+   for (uint8_t channel = 0; channel < SERVO_COUNT; channel++) {
+     pwm_.setPWM(channel, 0, 0);
+   }
++  // WE NO LONGER KNOW WHERE THE ARMS ARE.
++  //
++  // Cutting PWM releases the servos; they hold nothing and may settle wherever
++  // load takes them. Leaving xAxisFlipped_/yAxisFlipped_ asserting a position
++  // makes the next flip a no-op -- the guard in setXAxisFlipped sees the request
++  // already satisfied and returns success without moving. Observed as "the Y
++  // flippers never came up during grab, but it retracted anyway" (2026-08-14),
++  // after an E-stop had cut PWM mid-sequence.
++  flipStateKnown_ = false;
+ }
+ 
+ bool MotorController::setXAxisFlipped(bool flipped,
+                                       MotorAbortCallback shouldAbort) {
+-  if (xAxisFlipped_ == flipped) {
++  // Skip only when the cache is BOTH matching and still trustworthy.
++  if (flipStateKnown_ && xAxisFlipped_ == flipped) {
+     return true;
+   }
+ 
+@@ -66,12 +82,14 @@ bool MotorController::setXAxisFlipped(bool flipped,
+   }
+ 
+   xAxisFlipped_ = flipped;
++  flipStateKnown_ = true;
+   return true;
+ }
+ 
+ bool MotorController::setYAxisFlipped(bool flipped,
+                                       MotorAbortCallback shouldAbort) {
+-  if (yAxisFlipped_ == flipped) {
++  // Skip only when the cache is BOTH matching and still trustworthy.
++  if (flipStateKnown_ && yAxisFlipped_ == flipped) {
+     return true;
+   }
+ 
+@@ -82,6 +100,7 @@ bool MotorController::setYAxisFlipped(bool flipped,
+   }
+ 
+   yAxisFlipped_ = flipped;
++  flipStateKnown_ = true;
+   return true;
+ }
+ 
+diff --git a/src/MotorController.h b/src/MotorController.h
+index 6d49ff4..4e658e1 100644
+--- a/src/MotorController.h
++++ b/src/MotorController.h
+@@ -30,6 +30,18 @@ class MotorController {
+   bool xAxisFlipped_;
+   bool yAxisFlipped_;
+ 
++  // Is the cached flip state still TRUE OF THE HARDWARE?
++  //
++  // xAxisFlipped_/yAxisFlipped_ record what we last commanded, and the setters
++  // skip the move when the request already matches. That is a useful shortcut
++  // right up to the moment the servos stop obeying us -- stopAll() cuts PWM on
++  // all four channels, and an aborted ramp leaves them part-way. In both cases
++  // the flags still claim a position the arms are no longer holding, and the
++  // next command silently does nothing because it thinks it has already run.
++  //
++  // Cleared whenever we give up control; set again only after a completed move.
++  bool flipStateKnown_;
++
+   bool moveServoPairSlow(uint8_t servo1, uint8_t servo2, int targetAngle,
+                          MotorAbortCallback shouldAbort);
+   void setServoAngle(uint8_t channel, int angle);
 diff --git a/src/main.cpp b/src/main.cpp
 index 820fc1b..d9a53ac 100644
 --- a/src/main.cpp

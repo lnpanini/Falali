@@ -602,17 +602,60 @@ static bool armLinkBegin() {
   return true;
 }
 
+// *** THE ARM HAS A ONE-COMMAND MAILBOX. PACE EVERY SEND. ***
+//
+// Its receive callback overwrites pendingWirelessCommand unconditionally and
+// loop() reads whatever is sitting there. Two commands closer together than one
+// arm loop iteration therefore collapse into the second, with no reply and no
+// error -- the first simply never happened.
+//
+// Measured 2026-08-14: jog followed immediately by its own stop produced 30
+// sends and 2 replies. The arm saw "mstop" 28 times and "xret" almost never, so
+// the motor never started and the jog looked dead.
+//
+// This is the same hazard the UART build queued against ("the arm reads ONE
+// character then flushes the rest"), dropped when moving to ESP-NOW because
+// packets are discrete. Discreteness was never the issue -- a single-slot
+// mailbox loses the first of two arrivals whatever the transport.
+static constexpr uint32_t ARM_GAP_MS = 40;    // >> one arm loop iteration
+static constexpr size_t ARM_TXQ = 8;
+static char g_armq[ARM_TXQ][12];
+static size_t g_armq_head = 0, g_armq_tail = 0;
+static uint32_t g_arm_last_tx = 0;
+
 // SENDS THE TRAILING NUL. The arm parses C strings, so the terminator is part of
 // the message, not an artefact of how we happen to store it.
+static void armTransmit(const char* cmd) {
+  const esp_err_t e = esp_now_send(ARM_ESP_MAC,
+                                   (const uint8_t*)cmd, strlen(cmd) + 1);
+  if (e != ESP_OK) Console.printf("  ESP-NOW queue failed for \"%s\"\n", cmd);
+}
+
 static void armSend(const char* cmd, const char* what) {
   if (!g_espnow_up) {
     Console.printf("arm <- \"%s\" NOT SENT (ESP-NOW down) (%s)\n", cmd, what);
     return;
   }
-  const esp_err_t e = esp_now_send(ARM_ESP_MAC,
-                                   (const uint8_t*)cmd, strlen(cmd) + 1);
-  Console.printf("arm <- \"%s\"  (%s)%s\n", cmd, what,
-                 e == ESP_OK ? "" : "  [QUEUE FAILED]");
+  const size_t next = (g_armq_tail + 1) % ARM_TXQ;
+  if (next == g_armq_head) {
+    // Visible here beats invisible at the arm, which is where they went before.
+    Console.printf("arm <- \"%s\" DROPPED (queue full) (%s)\n", cmd, what);
+    return;
+  }
+  strncpy(g_armq[g_armq_tail], cmd, sizeof(g_armq[0]) - 1);
+  g_armq[g_armq_tail][sizeof(g_armq[0]) - 1] = '\0';
+  g_armq_tail = next;
+  Console.printf("arm <- \"%s\"  (%s)\n", cmd, what);
+}
+
+// One queued command per gap. Called every loop.
+static void armPump() {
+  if (g_armq_head == g_armq_tail) return;
+  const uint32_t now = millis();
+  if (now - g_arm_last_tx < ARM_GAP_MS) return;
+  g_arm_last_tx = now;
+  armTransmit(g_armq[g_armq_head]);
+  g_armq_head = (g_armq_head + 1) % ARM_TXQ;
 }
 
 // Ordinary commands go through the busy interlock; E-stop does not.
@@ -652,16 +695,40 @@ static void armCommand(const char* cmd, const char* what) {
 // receive buffer is a single slot, so a command per loop iteration would keep
 // overwriting the slot and the jog would never be serviced.
 static char g_jog_active = 0;
+static uint32_t g_jog_started = 0;
+static bool g_jog_release_pending = false;
+
+// MINIMUM JOG DURATION. A quick tap would otherwise queue the jog and its stop
+// together, and even paced they would arrive close enough that the operator sees
+// a twitch or nothing. 250 ms of travel is short enough to feel like a nudge and
+// long enough to be a nudge.
+//
+// Safe to let it overrun the button: the arm's jog stops itself on the limit
+// switch or at 3 s regardless of what we do.
+static constexpr uint32_t ARM_JOG_MIN_MS = 250;
 
 static void armJog(char which, const char* cmd, const char* what) {
-  if (g_jog_active == which) return;          // already running this direction
+  if (g_jog_active == which) {
+    g_jog_release_pending = false;   // re-pressed before the stop went out
+    return;
+  }
   if (g_jog_active) armSend("mstop", "stop previous jog");
   g_jog_active = which;
+  g_jog_started = millis();
+  g_jog_release_pending = false;
   armSend(cmd, what);
 }
 
+// Requests the stop; armJogTick decides when it may actually go.
 static void armJogRelease() {
   if (!g_jog_active) return;
+  g_jog_release_pending = true;
+}
+
+static void armJogTick() {
+  if (!g_jog_release_pending) return;
+  if (millis() - g_jog_started < ARM_JOG_MIN_MS) return;
+  g_jog_release_pending = false;
   g_jog_active = 0;
   armSend("mstop", "jog released -> stop");
 }
@@ -982,6 +1049,8 @@ void loop() {
 
   // Arm replies arrive on an ESP-NOW callback, not by polling. The only thing
   // to service is the interlock's own timeout.
+  armJogTick();     // release a held jog once it has run its minimum
+  armPump();        // one queued command per ARM_GAP_MS -- the arm has one slot
   armBusyTick();
 
   float vx = 0, vy = 0, w = 0;

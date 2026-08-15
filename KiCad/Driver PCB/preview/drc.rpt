@@ -1,0 +1,682 @@
+{
+    "$schema": "https://schemas.kicad.org/drc.v1.json",
+    "coordinate_units": "mm",
+    "date": "2026-08-06T20:22:05",
+    "ignored_checks": [
+        {
+            "description": "Footprint has no courtyard defined",
+            "key": "missing_courtyard"
+        },
+        {
+            "description": "Track endpoint not centered on via",
+            "key": "track_not_centered_on_via"
+        },
+        {
+            "description": "Tuning profile track geometries",
+            "key": "tuning_profile_track_geometries"
+        },
+        {
+            "description": "Footprint doesn't match symbol's footprint filters",
+            "key": "footprint_filters_mismatch"
+        },
+        {
+            "description": "Footprint component type doesn't match footprint pads",
+            "key": "footprint_type_mismatch"
+        }
+    ],
+    "included_severities": [
+        "error",
+        "warning"
+    ],
+    "kicad_version": "10.0.5",
+    "schematic_parity": [],
+    "source": "Driver PCB.kicad_pcb",
+    "unconnected_items": [
+        {
+            "description": "Missing connection between items",
+            "items": [
+                {
+                    "description": "PTH pad 3 [Net-(J1-Pin_3)] of J1",
+                    "pos": {
+                        "x": 98.0,
+                        "y": 81.58
+                    },
+                    "uuid": "d32f0769-0714-452b-9f23-88209b9381c8"
+                },
+                {
+                    "description": "PTH pad 1 [Net-(J1-Pin_3)] of R3",
+                    "pos": {
+                        "x": 107.5,
+                        "y": 85.0
+                    },
+                    "uuid": "2660f515-6763-48df-9c23-b0ffb131eb23"
+                }
+            ],
+            "severity": "error",
+            "type": "unconnected_items"
+        },
+        {
+            "description": "Missing connection between items",
+            "items": [
+                {
+                    "description": "PTH pad 2 [Net-(Q3-B)] of R3",
+                    "pos": {
+                        "x": 115.12,
+                        "y": 85.0
+                    },
+                    "uuid": "8d947e8e-d76c-486f-9724-024952796b03"
+                },
+                {
+                    "description": "PTH pad 1 [Net-(Q3-B)] of R4",
+                    "pos": {
+                        "x": 119.88,
+                        "y": 85.0
+                    },
+                    "uuid": "44a0deca-4913-473b-a242-c97ae388dca4"
+                }
+            ],
+            "severity": "error",
+            "type": "unconnected_items"
+        },
+        {
+            "description": "Missing connection between items",
+            "items": [
+                {
+                    "description": "PTH pad 1 [Net-(Q3-B)] of R4",
+                    "pos": {
+                        "x": 119.88,
+                        "y": 85.0
+                    },
+                    "uuid": "44a0deca-4913-473b-a242-c97ae388dca4"
+                },
+                {
+                    "description": "PTH pad 2 [Net-(Q3-B)] of Q3",
+                    "pos": {
+                        "x": 148.335,
+                        "y": 81.655
+                    },
+                    "uuid": "6edf4e26-98bb-48c0-9bc4-669cd2098bc7"
+                }
+            ],
+            "severity": "error",
+            "type": "unconnected_items"
+        },
+        {
+            "description": "Missing connection between items",
+            "items": [
+                {
+                    "description": "PTH pad 2 [Net-(Q1-B)] of R6",
+                    "pos": {
+                        "x": 130.5,
+                        "y": 106.0
+                    },
+                    "uuid": "6042ca32-3a4c-46ab-9fed-dcb7ffcfb111"
+                },
+                {
+                    "description": "PTH pad 2 [Net-(Q1-B)] of Q1",
+                    "pos": {
+                        "x": 138.0,
+                        "y": 75.0
+                    },
+                    "uuid": "a4bf23a9-f60c-40f7-a8a1-d0325b8c80dd"
+                }
+            ],
+            "severity": "error",
+            "type": "unconnected_items"
+        },
+        {
+            "description": "Missing connection between items",
+            "items": [
+                {
+                    "description": "PTH pad 2 [Net-(Q1-B)] of Q1",
+                    "pos": {
+                        "x": 138.0,
+                        "y": 75.0
+                    },
+                    "uuid": "a4bf23a9-f60c-40f7-a8a1-d0325b8c80dd"
+                },
+                {
+                    "description": "PTH pad 1 [Net-(Q1-B)] of R1",
+                    "pos": {
+                        "x": 107.5,
+                        "y": 74.0
+                    },
+                    "uuid": "85393ee8-8576-4c76-8a0d-0a85e8753236"
+                }
+            ],
+            "severity": "error",
+            "type": "unconnected_items"
+        },
+        {
+            "description": "Missing connection between items",
+            "items": [
+                {
+                    "description": "PTH pad 1 [Net-(J1-Pin_1)] of J1",
+                    "pos": {
+                        "x": 98.0,
+                        "y": 76.5
+                    },
+                    "uuid": "a30cf5bb-7994-49bd-bea5-d6e89bb080c1"
+                },
+                {
+                    "description": "PTH pad 2 [Net-(J1-Pin_1)] of R1",
+                    "pos": {
+                        "x": 115.12,
+                        "y": 74.0
+                    },
+                    "uuid": "4f9093f6-e0cd-4ae2-bcca-b51eb520881a"
+                }
+            ],
+            "severity": "error",
+            "type": "unconnected_items"
+        },
+        {
+            "description": "Missing connection between items",
+            "items": [
+                {
+                    "description": "PTH pad 1 [Net-(J1-Pin_4)] of R5",
+                    "pos": {
+                        "x": 119.88,
+                        "y": 94.5
+                    },
+                    "uuid": "cc1a0473-21c2-4174-835f-8f0e0b94d637"
+                },
+                {
+                    "description": "PTH pad 1 [Net-(J1-Pin_4)] of R6",
+                    "pos": {
+                        "x": 122.88,
+                        "y": 106.0
+                    },
+                    "uuid": "d3fc9288-0bf5-4cc2-986d-0f01266c221b"
+                }
+            ],
+            "severity": "error",
+            "type": "unconnected_items"
+        },
+        {
+            "description": "Missing connection between items",
+            "items": [
+                {
+                    "description": "PTH pad 1 [Net-(J1-Pin_4)] of R5",
+                    "pos": {
+                        "x": 119.88,
+                        "y": 94.5
+                    },
+                    "uuid": "cc1a0473-21c2-4174-835f-8f0e0b94d637"
+                },
+                {
+                    "description": "PTH pad 4 [Net-(J1-Pin_4)] of J1",
+                    "pos": {
+                        "x": 98.0,
+                        "y": 84.12
+                    },
+                    "uuid": "513e8256-e393-4321-857f-5b7467a24c2d"
+                }
+            ],
+            "severity": "error",
+            "type": "unconnected_items"
+        },
+        {
+            "description": "Missing connection between items",
+            "items": [
+                {
+                    "description": "PTH pad 2 [Net-(J1-Pin_4)] of R4",
+                    "pos": {
+                        "x": 127.5,
+                        "y": 85.0
+                    },
+                    "uuid": "e785cd2e-8444-4f47-b11e-f44bfbdef978"
+                },
+                {
+                    "description": "PTH pad 1 [Net-(J1-Pin_4)] of Q2",
+                    "pos": {
+                        "x": 138.86,
+                        "y": 85.54
+                    },
+                    "uuid": "a20849e6-1c2f-4e02-9d92-5b0bad294a64"
+                }
+            ],
+            "severity": "error",
+            "type": "unconnected_items"
+        },
+        {
+            "description": "Missing connection between items",
+            "items": [
+                {
+                    "description": "PTH pad 2 [Net-(J1-Pin_4)] of R4",
+                    "pos": {
+                        "x": 127.5,
+                        "y": 85.0
+                    },
+                    "uuid": "e785cd2e-8444-4f47-b11e-f44bfbdef978"
+                },
+                {
+                    "description": "PTH pad 1 [Net-(J1-Pin_4)] of R5",
+                    "pos": {
+                        "x": 119.88,
+                        "y": 94.5
+                    },
+                    "uuid": "cc1a0473-21c2-4174-835f-8f0e0b94d637"
+                }
+            ],
+            "severity": "error",
+            "type": "unconnected_items"
+        },
+        {
+            "description": "Missing connection between items",
+            "items": [
+                {
+                    "description": "PTH pad 1 [Net-(J1-Pin_4)] of Q2",
+                    "pos": {
+                        "x": 138.86,
+                        "y": 85.54
+                    },
+                    "uuid": "a20849e6-1c2f-4e02-9d92-5b0bad294a64"
+                },
+                {
+                    "description": "PTH pad 1 [Net-(J1-Pin_4)] of Q1",
+                    "pos": {
+                        "x": 138.0,
+                        "y": 77.54
+                    },
+                    "uuid": "3cf889d9-e3c5-4ff3-9e65-723d4a11a68a"
+                }
+            ],
+            "severity": "error",
+            "type": "unconnected_items"
+        },
+        {
+            "description": "Missing connection between items",
+            "items": [
+                {
+                    "description": "PTH pad 1 [Net-(J1-Pin_4)] of Q2",
+                    "pos": {
+                        "x": 138.86,
+                        "y": 85.54
+                    },
+                    "uuid": "a20849e6-1c2f-4e02-9d92-5b0bad294a64"
+                },
+                {
+                    "description": "PTH pad 1 [Net-(J1-Pin_4)] of Q3",
+                    "pos": {
+                        "x": 148.335,
+                        "y": 84.195
+                    },
+                    "uuid": "c1219e32-78b3-4ab5-ba44-c0c87c862f24"
+                }
+            ],
+            "severity": "error",
+            "type": "unconnected_items"
+        },
+        {
+            "description": "Missing connection between items",
+            "items": [
+                {
+                    "description": "PTH pad 4 [Net-(J1-Pin_4)] of J2",
+                    "pos": {
+                        "x": 158.5,
+                        "y": 84.415
+                    },
+                    "uuid": "74c0447c-ee2a-44bd-9228-fe7b34d69ba4"
+                },
+                {
+                    "description": "PTH pad 1 [Net-(J1-Pin_4)] of Q3",
+                    "pos": {
+                        "x": 148.335,
+                        "y": 84.195
+                    },
+                    "uuid": "c1219e32-78b3-4ab5-ba44-c0c87c862f24"
+                }
+            ],
+            "severity": "error",
+            "type": "unconnected_items"
+        },
+        {
+            "description": "Missing connection between items",
+            "items": [
+                {
+                    "description": "PTH pad 2 [Net-(Q2-B)] of R2",
+                    "pos": {
+                        "x": 115.12,
+                        "y": 79.5
+                    },
+                    "uuid": "b423bea2-8ca0-4a07-aa9e-0b632bf0390e"
+                },
+                {
+                    "description": "PTH pad 2 [Net-(Q2-B)] of R5",
+                    "pos": {
+                        "x": 127.5,
+                        "y": 94.5
+                    },
+                    "uuid": "e31c628f-b756-4e64-a2e3-d6fcc65f33a4"
+                }
+            ],
+            "severity": "error",
+            "type": "unconnected_items"
+        },
+        {
+            "description": "Missing connection between items",
+            "items": [
+                {
+                    "description": "PTH pad 2 [Net-(Q2-B)] of R5",
+                    "pos": {
+                        "x": 127.5,
+                        "y": 94.5
+                    },
+                    "uuid": "e31c628f-b756-4e64-a2e3-d6fcc65f33a4"
+                },
+                {
+                    "description": "PTH pad 2 [Net-(Q2-B)] of Q2",
+                    "pos": {
+                        "x": 138.86,
+                        "y": 83.0
+                    },
+                    "uuid": "a1a5a503-93c7-4436-b1c3-beb73184c61b"
+                }
+            ],
+            "severity": "error",
+            "type": "unconnected_items"
+        },
+        {
+            "description": "Missing connection between items",
+            "items": [
+                {
+                    "description": "PTH pad 3 [Net-(J2-Pin_1)] of Q1",
+                    "pos": {
+                        "x": 138.0,
+                        "y": 72.46
+                    },
+                    "uuid": "40928f8a-a2a9-420f-a21b-27c7f59fa127"
+                },
+                {
+                    "description": "PTH pad 1 [Net-(J2-Pin_1)] of J2",
+                    "pos": {
+                        "x": 158.5,
+                        "y": 76.795
+                    },
+                    "uuid": "86f8a755-2b31-4fca-af16-b65f2576a40b"
+                }
+            ],
+            "severity": "error",
+            "type": "unconnected_items"
+        },
+        {
+            "description": "Missing connection between items",
+            "items": [
+                {
+                    "description": "PTH pad 3 [Net-(J2-Pin_2)] of Q2",
+                    "pos": {
+                        "x": 138.86,
+                        "y": 80.46
+                    },
+                    "uuid": "4df1a9b7-9314-43aa-a9ab-3c01009b6f4b"
+                },
+                {
+                    "description": "PTH pad 2 [Net-(J2-Pin_2)] of J2",
+                    "pos": {
+                        "x": 158.5,
+                        "y": 79.335
+                    },
+                    "uuid": "cd0d1804-f0e1-4c16-93d3-0a8ec779c549"
+                }
+            ],
+            "severity": "error",
+            "type": "unconnected_items"
+        },
+        {
+            "description": "Missing connection between items",
+            "items": [
+                {
+                    "description": "PTH pad 3 [Net-(J2-Pin_3)] of Q3",
+                    "pos": {
+                        "x": 148.335,
+                        "y": 79.115
+                    },
+                    "uuid": "266e84a9-df63-407a-b5c3-3faa85668a34"
+                },
+                {
+                    "description": "PTH pad 3 [Net-(J2-Pin_3)] of J2",
+                    "pos": {
+                        "x": 158.5,
+                        "y": 81.875
+                    },
+                    "uuid": "dea7212d-627b-4c04-8bf1-26cf569bbc6d"
+                }
+            ],
+            "severity": "error",
+            "type": "unconnected_items"
+        },
+        {
+            "description": "Missing connection between items",
+            "items": [
+                {
+                    "description": "PTH pad 1 [Net-(J2-Pin_5)] of R7",
+                    "pos": {
+                        "x": 123.5,
+                        "y": 116.5
+                    },
+                    "uuid": "5e8a2bbd-6062-4a51-bb2e-42aed8468e44"
+                },
+                {
+                    "description": "PTH pad 5 [Net-(J2-Pin_5)] of J2",
+                    "pos": {
+                        "x": 158.5,
+                        "y": 86.955
+                    },
+                    "uuid": "1f3db69c-aad3-4402-87d9-36db418c4aeb"
+                }
+            ],
+            "severity": "error",
+            "type": "unconnected_items"
+        },
+        {
+            "description": "Missing connection between items",
+            "items": [
+                {
+                    "description": "PTH pad 5 [Net-(J1-Pin_5)] of J1",
+                    "pos": {
+                        "x": 98.0,
+                        "y": 86.66
+                    },
+                    "uuid": "2e23a242-b7a7-43a3-bd76-50549692fb6e"
+                },
+                {
+                    "description": "PTH pad 2 [Net-(J1-Pin_5)] of R7",
+                    "pos": {
+                        "x": 131.12,
+                        "y": 116.5
+                    },
+                    "uuid": "0ec730f8-a899-4d99-a178-382f65db0a14"
+                }
+            ],
+            "severity": "error",
+            "type": "unconnected_items"
+        },
+        {
+            "description": "Missing connection between items",
+            "items": [
+                {
+                    "description": "PTH pad 2 [Net-(J1-Pin_2)] of J1",
+                    "pos": {
+                        "x": 98.0,
+                        "y": 79.04
+                    },
+                    "uuid": "b37cc659-bc44-4091-9831-769ffb1ea5ce"
+                },
+                {
+                    "description": "PTH pad 1 [Net-(J1-Pin_2)] of R2",
+                    "pos": {
+                        "x": 107.5,
+                        "y": 79.5
+                    },
+                    "uuid": "bc9c84f3-2429-49c8-bafc-74751b44ee7a"
+                }
+            ],
+            "severity": "error",
+            "type": "unconnected_items"
+        }
+    ],
+    "violations": [
+        {
+            "description": "Board edge clearance violation (board setup constraints edge clearance 0.5000 mm; actual 0.0000 mm)",
+            "items": [
+                {
+                    "description": "Rectangle on Edge.Cuts",
+                    "pos": {
+                        "x": 104.25,
+                        "y": 74.75
+                    },
+                    "uuid": "84c76620-4f25-4f82-86c1-be47921614bf"
+                },
+                {
+                    "description": "PTH pad 1 [Net-(Q1-B)] of R1",
+                    "pos": {
+                        "x": 107.5,
+                        "y": 74.0
+                    },
+                    "uuid": "85393ee8-8576-4c76-8a0d-0a85e8753236"
+                }
+            ],
+            "severity": "error",
+            "type": "copper_edge_clearance"
+        },
+        {
+            "description": "Board edge clearance violation (board setup constraints edge clearance 0.5000 mm; actual 0.0000 mm)",
+            "items": [
+                {
+                    "description": "Rectangle on Edge.Cuts",
+                    "pos": {
+                        "x": 104.25,
+                        "y": 74.75
+                    },
+                    "uuid": "84c76620-4f25-4f82-86c1-be47921614bf"
+                },
+                {
+                    "description": "PTH pad 2 [Net-(J1-Pin_1)] of R1",
+                    "pos": {
+                        "x": 115.12,
+                        "y": 74.0
+                    },
+                    "uuid": "4f9093f6-e0cd-4ae2-bcca-b51eb520881a"
+                }
+            ],
+            "severity": "error",
+            "type": "copper_edge_clearance"
+        },
+        {
+            "description": "Board edge clearance violation (board setup constraints edge clearance 0.5000 mm; actual 0.0000 mm)",
+            "items": [
+                {
+                    "description": "Rectangle on Edge.Cuts",
+                    "pos": {
+                        "x": 104.25,
+                        "y": 74.75
+                    },
+                    "uuid": "84c76620-4f25-4f82-86c1-be47921614bf"
+                },
+                {
+                    "description": "PTH pad 2 [Net-(Q1-B)] of Q1",
+                    "pos": {
+                        "x": 138.0,
+                        "y": 75.0
+                    },
+                    "uuid": "a4bf23a9-f60c-40f7-a8a1-d0325b8c80dd"
+                }
+            ],
+            "severity": "error",
+            "type": "copper_edge_clearance"
+        },
+        {
+            "description": "Silkscreen clipped by board edge",
+            "items": [
+                {
+                    "description": "Rectangle on Edge.Cuts",
+                    "pos": {
+                        "x": 104.25,
+                        "y": 74.75
+                    },
+                    "uuid": "84c76620-4f25-4f82-86c1-be47921614bf"
+                },
+                {
+                    "description": "Reference field of Q1",
+                    "pos": {
+                        "x": 134.44,
+                        "y": 75.0
+                    },
+                    "uuid": "59845cad-debf-484a-a094-7c4270f1afac"
+                }
+            ],
+            "severity": "warning",
+            "type": "silk_edge_clearance"
+        },
+        {
+            "description": "Silkscreen clipped by board edge",
+            "items": [
+                {
+                    "description": "Rectangle on Edge.Cuts",
+                    "pos": {
+                        "x": 104.25,
+                        "y": 74.75
+                    },
+                    "uuid": "84c76620-4f25-4f82-86c1-be47921614bf"
+                },
+                {
+                    "description": "Segment of Q1 on F.Silkscreen",
+                    "pos": {
+                        "x": 139.85,
+                        "y": 76.8
+                    },
+                    "uuid": "213cc759-c2b7-457b-8c60-5f186bd8dfe4"
+                }
+            ],
+            "severity": "warning",
+            "type": "silk_edge_clearance"
+        },
+        {
+            "description": "Silkscreen clipped by board edge",
+            "items": [
+                {
+                    "description": "Rectangle on Edge.Cuts",
+                    "pos": {
+                        "x": 104.25,
+                        "y": 74.75
+                    },
+                    "uuid": "84c76620-4f25-4f82-86c1-be47921614bf"
+                },
+                {
+                    "description": "Arc of Q1 on F.Silkscreen",
+                    "pos": {
+                        "x": 138.0,
+                        "y": 75.0
+                    },
+                    "uuid": "61be9b05-ec91-4a44-b51d-837ed02dad51"
+                }
+            ],
+            "severity": "warning",
+            "type": "silk_edge_clearance"
+        },
+        {
+            "description": "Silkscreen clipped by board edge",
+            "items": [
+                {
+                    "description": "Rectangle on Edge.Cuts",
+                    "pos": {
+                        "x": 104.25,
+                        "y": 74.75
+                    },
+                    "uuid": "84c76620-4f25-4f82-86c1-be47921614bf"
+                },
+                {
+                    "description": "Footprint text of Q1 (B)",
+                    "pos": {
+                        "x": 136.476,
+                        "y": 75.0
+                    },
+                    "uuid": "95dc5081-3dfa-435d-87e6-2b9fddb4f6c1"
+                }
+            ],
+            "severity": "warning",
+            "type": "silk_edge_clearance"
+        }
+    ]
+}

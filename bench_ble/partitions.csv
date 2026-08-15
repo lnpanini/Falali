@@ -1,0 +1,23 @@
+# Partition table for bench_ble on ESP32-S3-DevKitC-1 N16R8 (16 MB flash).
+#
+# WHY THIS FILE EXISTS. Adding WiFi/ESP-NOW alongside BTstack pushed the app from
+# ~795 KB to ~1.28 MB, which overflowed the 1 MB slot the generated table had been
+# carrying since 2026-08-11 and left the board in a boot loop:
+#
+#   E esp_image: Image length 1309008 doesn't fit in partition length 1048576
+#   E boot: No bootable app partitions in the partition table
+#
+# The IDF presets were the problem: single_app gives 1 MB, single_app_large gives
+# 1500 K, and this build would have been at 85% of even the larger one. On a
+# module with 16 MB of flash there is no reason to be anywhere near a ceiling, so
+# the app gets 3 MB and this stops being a recurring surprise.
+#
+# Offsets are explicit rather than blank. A blank offset is computed from the
+# preceding entry, which means adding or resizing anything silently moves every
+# partition after it -- and moving nvs loses the stored Bluetooth pairing keys.
+#
+# Name,     Type, SubType,  Offset,   Size
+nvs,        data, nvs,      0x9000,   0x6000
+phy_init,   data, phy,      0xf000,   0x1000
+factory,    app,  factory,  0x10000,  0x300000
+coredump,   data, coredump, 0x310000, 0x10000

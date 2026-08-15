@@ -7,9 +7,27 @@ more than another architecture diagram.
 
 Read this before changing anything in `bench_ble/`, `arm/`, or `include/pins.h`.
 
+## How to read this file
+
+Entries are tagged, because they are not all equally certain and treating a good
+guess as a fact is how the next person loses a day:
+
+- **[VERIFIED]** — read in the source, or measured on hardware, and quoted here.
+  You can build on it.
+- **[OBSERVED]** — this happened on the robot and the log is quoted. What caused
+  it may still be open.
+- **[HYPOTHESIS]** — a model that fits the evidence and has not been tested
+  against an alternative. It may be wrong. Where a hypothesis is load-bearing,
+  the experiment that would confirm or kill it is written alongside.
+
+The tags are the honest part. Several things below were confidently believed and
+then turned out to be something else — a boot failure blamed on a jumper that was
+never fitted, a dead link blamed on wiring that was correct. Both cost more than
+the eventual fix.
+
 ---
 
-## 1. A dead ToF sensor reads as "clear air"
+## 1. A dead ToF sensor reads as "clear air"  **[VERIFIED]**
 
 `arm/src/TofSensorArray.cpp` substitutes `TOF_OUT_OF_RANGE_MM` = **8191** when
 `RangeStatus == 4`, and the air test is:
@@ -30,13 +48,19 @@ It also makes the visible axis order look random — an axis whose ToF reads air
 skips its extend, so which arm you *see* move varies with sensor state even
 though the command order is fixed.
 
+The arithmetic and the code path are verified. That this is what produced the
+observed *"neither arm is extending"* is **[HYPOTHESIS]** — strongly supported
+(the shortcut is unconditional and the bench had nothing overhead) but never
+tested by covering the sensors and re-running. **That test takes ten seconds and
+nobody has done it.**
+
 **Not fixed.** It is upstream's call. If you touch it: the fix is to treat
 `RangeStatus == 4` as *unknown*, not as a distance, and to refuse to act on
 unknown.
 
 ---
 
-## 2. Extend and retract check different limit switches
+## 2. Extend and retract check different limit switches  **[VERIFIED]**
 
 `arm/src/main.cpp`:
 
@@ -57,16 +81,22 @@ bool isXRetractBlocked(...) { return states.xArmMinPressed ||
 are different switches on different GPIOs that happen to share a name. Retract
 has two spare inputs to catch a failure; extend has none.
 
-If the extend limit is not wired, extend has no mechanical protection at all —
-what remains is the ToF (see §1, which cannot be trusted to stop anything) and an
-8 s timeout at duty 120/255.
+**The table is verified from source. Why extend does not stop on hardware is
+[HYPOTHESIS] and remains open — see "Open issues" at the end of this file.**
+The leading theory is that `X_ARM_MAX` (GPIO42) is not reading, since the switch
+that demonstrably works during retract is one of three *different* inputs. That
+has not been confirmed with a meter or the switch monitor.
+
+If that theory is right, extend has no mechanical protection at all — what
+remains is the ToF (see §1, which cannot be trusted to stop anything) and an 8 s
+timeout at duty 120/255.
 
 Diagnose with the arm's `m` command over its USB serial: a live switch monitor
 that prints on every state change with the motors off.
 
 ---
 
-## 3. The arm's command mailbox holds exactly one command
+## 3. The arm's command mailbox holds exactly one command  **[VERIFIED]**
 
 `arm/src/main.cpp`'s receive callback overwrites `pendingWirelessCommand`
 unconditionally, and `loop()` reads whatever is sitting in it. **Two commands
@@ -88,7 +118,7 @@ identical symptom. **Do not remove the pacing because the transport changed.**
 
 ---
 
-## 4. ESP-NOW hands you every frame on the channel
+## 4. ESP-NOW hands you every frame on the channel  **[VERIFIED]**
 
 `esp_now_register_recv_cb` fires for frames from devices you never peered with —
 broadcast ESP-NOW reaches every ESP-NOW device on the channel. In a lab full of
@@ -103,7 +133,7 @@ would consider it idle.
 
 ---
 
-## 5. `ARM_ESP_MAC` in the arm's config is decorative
+## 5. `ARM_ESP_MAC` in the arm's config is decorative  **[VERIFIED]**
 
 `arm/src/HardwareConfig.h` defines it, and it is **never applied with
 `esp_wifi_set_mac()`** — only printed at boot as a label. It is a note about what
@@ -115,7 +145,7 @@ perfect silence with nothing wrong on screen.
 
 ---
 
-## 6. `Serial` does not mean what you think in either firmware
+## 6. `Serial` does not mean what you think in either firmware  **[VERIFIED]**
 
 **`bench_ble/` (base):** Bluepad32 owns the console.
 `CONFIG_BLUEPAD32_USB_CONSOLE_ENABLE=y`, and `sdkconfig.defaults` says why in its
@@ -136,20 +166,26 @@ enumerates, stays silent, and ignores you.
 
 ---
 
-## 7. The VL53L0X library returns failed measurements as valid numbers
+## 7. The VL53L0X library returns failed measurements as valid numbers  **[VERIFIED code, HYPOTHESIS cause]**
 
 The vendored Pololu driver returns the raw range register and **never reads
 `RANGE_STATUS`**. A measurement that failed on signal, sigma or phase comes back
 looking exactly like a good one — `0`, `74`, `221`, `611`, `837` mm were all
 logged with nothing above the sensor.
 
-Debouncing cannot fix this: they are genuine measurements that genuinely failed,
-and several land in a row. The rejection has to happen **at the device**, via
-`setSignalRateLimit(0.50)` — up from the 0.25 MCPS default.
+That the driver ignores `RANGE_STATUS` is verified in its source. That the
+specific garbage values were *failed measurements* rather than something else —
+bus corruption, a stale register read — is **[HYPOTHESIS]**. It fits (the values
+are unstable and appear only with no target) and `setSignalRateLimit(0.50)` was
+applied on that basis, but no one has read the status register to confirm.
+
+If the hypothesis holds, debouncing cannot help: these are genuine measurements
+that genuinely failed, and several land in a row, so the rejection has to happen
+**at the device**.
 
 ---
 
-## 8. Docking's band ceilings must stay equal
+## 8. Docking's band ceilings must stay equal  **[HYPOTHESIS — a model that fits]**
 
 `cfg::makeCornerConfig()` sets `assert_max_mm` and `band_max_mm` to the **same**
 value, and there is a comment saying not to split them. The reason is geometric:
@@ -159,6 +195,13 @@ from outside. A ray at the 12.5° cone edge reaches lateral offset `d` at slant
 range `d / sin(12.5°)`, so the ceiling is really a *"how far past the edge am I"*
 test — 130 mm of range is 28 mm of travel.
 
+**This is a model, not a measurement.** It was built to explain readings of 138 →
+219 → 296 mm logged with the sensor ~60 mm past the edge, and `60 / sin(12.5°)`
+= 277 mm fits that closely. It has not been tested at a second standoff, which is
+the obvious way to falsify it. The `kEdgeOverreachMm` constant derived from it
+feeds the `max_lin_mm_s` calibration, so **if the model is wrong that constant is
+wrong too** — treat both as provisional.
+
 Entry is early by the same distance exit is late, and the bisection cancels it
 **only while the two ceilings match.** A hysteresis gap of 130/160 puts a ~3 mm
 bias straight into the midpoint. Hysteresis on the *floor* is free, because
@@ -166,7 +209,7 @@ readings climb at an edge crossing and never fall.
 
 ---
 
-## 9. `pins.h` is netlist-derived, and the silkscreen disagrees with it
+## 9. `pins.h` is netlist-derived, and the silkscreen disagrees with it  **[VERIFIED on hardware]**
 
 The ToF connectors are labelled **4, 6, 7, 8** on the fabricated board and those
 are FL, FR, RL, RR — but the GPIOs behind them are **4, 5, 6, 7**. Only the first
@@ -182,7 +225,7 @@ project under `KiCad/` is the authority.
 
 ---
 
-## 10. GPIO traps on this board specifically
+## 10. GPIO traps on this board specifically  **[VERIFIED — datasheet + pins.h]**
 
 | pin | trap |
 |---|---|
@@ -194,7 +237,7 @@ project under `KiCad/` is the authority.
 
 ---
 
-## 11. The board is 16 MB and was configured as 4
+## 11. The board is 16 MB and was configured as 4  **[VERIFIED]**
 
 `CONFIG_ESPTOOLPY_FLASHSIZE_4MB` on an N16R8 module, with a 1 MB app partition —
 and **PlatformIO generates the partition table, not the sdkconfig.** Setting
@@ -209,7 +252,7 @@ the stored Bluetooth pairing keys.
 
 ---
 
-## 12. Dead-reckoning integrates the *command*, not the wheels
+## 12. Dead-reckoning integrates the *command*, not the wheels  **[VERIFIED]**
 
 There are no encoders (see §13). `DeadReckonOdometry` multiplies commanded
 velocity by `max_lin_mm_s`, so **a wheel that does not break away still accrues
@@ -226,7 +269,7 @@ Two consequences worth internalising:
 
 ---
 
-## 13. The encoders are gone and are not coming back
+## 13. The encoders are gone and are not coming back  **[VERIFIED]**
 
 Four AS5600 on a TCA9548A mux, never made to work: all share address `0x36` with
 no address pin, the board commons SDA/SCL, and isolating them needed eight trace
@@ -243,7 +286,7 @@ uncalibrated under load.
 
 ---
 
-## 14. Docking centres on *opposed* edges, and that is load-bearing
+## 14. Docking centres on *opposed* edges, and that is load-bearing  **[VERIFIED — design]**
 
 The obvious method marks both edges with the leading sensor pair, which lands the
 midpoint half a sensor span short — corrected by `front_offset_mm`. But that
@@ -260,7 +303,7 @@ independent of the least trustworthy number in the system.
 
 ---
 
-## 15. The docking sequence runs in a rotated frame
+## 15. The docking sequence runs in a rotated frame  **[VERIFIED — design]**
 
 The base **crabs in sideways**; manual driving stays nose-first. `DockFrame.h`
 permutes the corner array and swaps the drive axes at the port boundary, so
@@ -275,7 +318,7 @@ from the perpendicular one — which does not fail loudly, it bisects nonsense.
 
 ---
 
-## 16. Trolley wheels block one axis, so the base aligns on one only
+## 16. Trolley wheels block one axis, so the base aligns on one only  **[VERIFIED — mechanical constraint]**
 
 Once underneath, the trolley's own castors block travel along the robot's
 fore-aft axis — the docking frame's *lateral* axis. `CenterY` would command a
@@ -284,3 +327,76 @@ motion the chassis physically cannot make and burn its timeout, so
 
 `Confirm` still demands all four corners. With fore-aft uncorrectable it is the
 only thing left that catches a base parked badly on that axis.
+
+---
+
+# Open issues — handed over unfixed
+
+These are known, reproducible, and **deliberately not fixed**. They are recorded
+here rather than silently left because a handover that omits the open faults is
+worse than no handover.
+
+## A. X-axis extend does not stop at its limit switch **[OBSERVED — cause open]**
+
+**Symptom, reproduced on hardware 2026-08-14:** during the `grab` clamping
+sequence, the X axis extends past its mechanical stop. The limit switch is *not*
+consulted in a way that halts it.
+
+**What is established:**
+
+- The code path is correct. `isAxisExtendBlocked()` is tested at the top of every
+  `serviceAxisCycle()` call while extending, and again in `startAxisCycle()`
+  before the motor starts. The ToF check sits in the `else` branch, so **a closed
+  limit switch takes priority over any ToF state** — a covered ToF cannot mask it.
+- Extend consults `X_ARM_MAX` (GPIO42) **and nothing else**. Retract consults
+  three different inputs (§2).
+- The limit switch demonstrably works during manual retract — which exercises
+  `X_ARM_MIN`/`LIMIT_X1`/`LIMIT_X2`, none of which extend looks at.
+
+**What is not established — these are hypotheses, in rough order of likelihood:**
+
+1. `X_ARM_MAX` on GPIO42 is not wired, or is wired to a different input. Fits
+   every observation, but **no meter has been put on that pin.**
+2. There is no physical max-travel switch on the X axis at all, and the mechanical
+   stop is purely a hard stop. Would mean the firmware is asking for a signal the
+   machine does not produce.
+3. GPIO42 is compromised as an input. It is in the ESP32-S3 JTAG block
+   (MTCK/MTDO/MTDI/MTMS on 39–42) and GPIO3 — a JTAG-source strapping pin — is
+   also in use as `Y_ARM_MIN`. **Speculative. No evidence beyond the pin numbers.**
+
+**The experiment that settles it**, ~30 seconds: connect the arm over USB
+(`cd arm && pio device monitor -e esp32s3`), send `m` for the live switch monitor
+— motors off, prints on every state change — and press the X max stop by hand.
+
+- `X Arm Max` changes → the input works; hypotheses 1 and 3 die, and the fault is
+  that the switch is not reached at the position the mechanism stops at.
+- `Limit X1` or `X2` changes instead → it is wired to a retract input, and the fix
+  is one line in `isXExtendBlocked()`.
+- Nothing changes → hypothesis 1 or 2. Meter from the switch to the pin.
+
+**Why it matters more than it looks:** extend has no redundancy. If that switch
+is absent, the only things stopping the motor are the ToF — which reports 8191 mm
+as "clear air" when it fails (§1), so it cannot be relied on to stop anything —
+and an 8-second timeout at duty 120/255. That is roughly 47 % into a hard stop
+for eight seconds.
+
+**Do not fix this by guessing which switch to add to `isXExtendBlocked()`.**
+Picking wrong makes extend halt at the *retract* end, which will look like a
+different bug entirely.
+
+## B. `max_lin_mm_s` is calibrated to about ±6 % **[HYPOTHESIS-dependent]**
+
+Estimates from four methods spanned 1155–1657 mm/s. The value in `config.h` rests
+partly on the cone-geometry model in §8, which has not been independently tested.
+
+Largely defused: docking was restructured so the park point does not depend on it
+(§14). It still affects timeouts and a ~2.7 mm lag term. Worth re-measuring
+properly — a timed run over a long straight, from a rolling start — before anyone
+relies on the odometry for anything new.
+
+## C. `kWheelStallAmps` has never been calibrated under load
+
+Set to 10 A from bench measurements taken with the wheels off the ground. It is
+the **only** drivetrain fault signal the base has (§13), and it has never seen a
+loaded trolley. A current sensor also cannot distinguish a stall from a heavy
+load, so treat it as protection against something catastrophic, not as a limit.

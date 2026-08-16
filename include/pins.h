@@ -49,6 +49,15 @@ constexpr uint8_t kWheelBRK[4] = {39, 38, 15, 13};  // brake   (per wheel)
 // block exposes only SV/COM/F-R/EN/BRK; "RUN/ALM" is an LED, not an output
 // (manual + bench-confirmed 2026-07-27). The board has no ALARM net either.
 //
+// RE-CONFIRMED 2026-08-16 against the BLD-120A spec sheet's full port table:
+// the only terminals are SV/COM/F-R/EN/BRK, REF+/HU/HV/HW/REF-, W/V/U, DC+/DC-.
+// No FG, no ALM.
+//
+// *** IGNORE the feature bullets in docs/BLD-120-English-version.pdf. ***
+// Its intro page advertises "Speed signal output" and "Abnormal alarm signal
+// output". Both are boilerplate from a family datasheet and contradict the
+// terminal table in the SAME document. Do not go looking for those pins.
+//
 // *** SO THERE IS NO MOTOR FAULT DETECTION IN HARDWARE. ***
 // Protection comes from the driver's own P-sv overload trim (set it to the
 // motor's rated watts) and from the ACS758 -> ADS1115 current sense below
@@ -87,17 +96,22 @@ constexpr uint8_t kClampLPWMCh   = 5;
 // All four share the I2C bus at 0x29 and are brought up one at a time via XSHUT,
 // which is exactly what lib/hal_esp32/Vl53l0xArray.h implements. No mux needed.
 //
-// *** THE SILKSCREEN LABELS ARE NOT THE GPIO NUMBERS. ***
-// On the fabricated board the ToF connectors are labelled 4, 6, 7, 8, and those
-// are FL, FR, RL, RR in that order (Bryan, on the assembled base 2026-08-13).
-// The GPIOs behind them are 4, 5, 6, 7 -- so only the first label matches its
-// pin, and label "8" is GPIO7. GPIO8 is kI2C_SDA below and can never be an
-// XSHUT: pulling it low during Vl53l0xArray::begin()'s sequencing would take
-// the whole I2C bus down, ToF and IMU and ADS together.
+// *** THE REFERENCE DESIGNATORS ARE NOT THE GPIO NUMBERS. ***
+// CORRECTED 2026-08-16 from the netlist and the PCB's silkscreen layer. The
+// connectors are TOF5..TOF8 (there is no TOF4), and no arithmetic relates a
+// designator to its GPIO:
 //
-//   silkscreen   4     6     7     8
+//   designator   TOF5  TOF6  TOF7  TOF8
 //   corner       FL    FR    RL    RR
 //   XSHUT GPIO   4     5     6     7
+//
+// The functional silkscreen IS reliable, and is what you should read on the
+// board: pin 6 of each connector is labelled "XSHUT FL" / "XSHUT FR" /
+// "XSHUT RL" / "XSHUT RR". Corner identity is unambiguous.
+//
+// GPIO8 is kI2C_SDA below and can never be an XSHUT: pulling it low during
+// Vl53l0xArray::begin()'s sequencing would take the whole I2C bus down, ToF and
+// IMU and ADS together.
 constexpr uint8_t kTofXSHUT[4] = {4, 5, 6, 7};      // FL, FR, RL, RR
 
 // --- Shared I2C bus: ToF + IMU + current-sense ADC ---
@@ -106,18 +120,29 @@ constexpr uint8_t kI2C_SCL = 9;
 
 // --- 4x ACS758 -> ADS1115 at 0x48: which connector feeds which ADC channel ---
 //
-// Two independent facts that happen to agree, which is the only reason to trust
-// either. Derived by spinning one wheel at a time and watching which channel
-// moved (pcb_identify.cpp, 2026-08-11), and separately read off the silkscreen
-// (Bryan, 2026-08-13):
+// CORRECTED 2026-08-16 from KiCad/Wheel Drive PCB/Wheel Drive PCB.net. The
+// table that used to sit here listed the connectors as J14/J17/J12/J9 and
+// claimed they were "NOT in numeric order". The netlist says otherwise -- they
+// are in order, and the previous note was a misreading of the silkscreen:
 //
-//   connector    J14   J17   J12   J9
+//   connector    J9    J12   J14   J17     <- schematic names them FL FR RL RR
 //   corner       FL    FR    RL    RR
 //   ADS channel  A0    A1    A2    A3
 //
-// The connector designators are NOT in numeric order across the corners, so
-// never infer a channel from a J-number -- read this table. There is no netlist
-// in this repo to check it against.
+// The kCurrentAdsChannel values below were always correct; only the comment
+// was wrong. Netlist evidence, one line per channel:
+//
+//   /A0 : J8.7  J9.4      /A1 : J12.4 J8.8
+//   /A2 : J14.4 J8.9      /A3 : J17.4 J8.10
+//
+// On the board itself, read the A0..A3 silkscreen next to the connector -- every
+// pin on this PCB is functionally labelled. Do not infer a channel from a
+// J-number, and note that pcb_identify.cpp can no longer confirm a corner on its
+// own: it identifies one by watching an encoder AND a current channel move
+// together, and the encoder half died with the encoders (see below).
+//
+// kAdsAddr is fixed in copper, not by a jumper: J8 pin 5 is the module's ADDR
+// pin and the board ties it to ground. [VERIFIED -- netlist]
 constexpr uint8_t kAdsAddr = 0x48;
 constexpr uint8_t kCurrentAdsChannel[4] = {0, 1, 2, 3};  // FL, FR, RL, RR
 
@@ -170,17 +195,28 @@ constexpr uint32_t kPwmFreqHz = 1000;
 
 // Wheel SV — the driver's NATIVE PWM speed input.
 //
-// *** TWO MANUALS DISAGREE ON THE FREQUENCY RANGE. ***
-//   docs/BLD-120-English-version.pdf   : "PWM control between 1KHz~10KHz"
-//   docs/SYS-BLD-120A-manual.pdf       : "PWM 幅值 5V 频率 1~3KHz"  (amplitude 5 V, 1–3 kHz)
-// 2 kHz is inside BOTH ranges, so it is the only safe choice until we know which
-// document matches the unit on the bench. (A previous revision used 5 kHz, which
-// is outside the SYS manual's range, and before that 20 kHz, outside both.)
+// *** FREQUENCY RANGE RESOLVED 2026-08-16: 1-3 kHz. 2000 IS CORRECT. ***
+// Three documents, two of which now agree against the third:
+//   docs/BLDC-BLD120A-...-specs.pdf  : "The pulse frequency range: 1-3KHz"  <- BLD-120A specific
+//   docs/SYS-BLD-120A-manual.pdf     : "PWM 幅值 5V 频率 1~3KHz"            (amplitude 5 V, 1-3 kHz)
+//   docs/BLD-120-English-version.pdf : "PWM control between 1KHz~10KHz"     <- the outlier
+// A previous revision used 5 kHz, which is OUTSIDE the real range, and before
+// that 20 kHz, outside all three.
 //
-// The SYS manual also specifies PWM AMPLITUDE 5 V — our 3.3 V drive is below
-// spec. Its duty/speed graph is linear from 4% duty = 4% speed, so the response
-// is duty-driven; whether 3.3 V reliably crosses the input threshold is the open
-// question the bench sweep answers.
+// The spec sheet also advises a DUTY RANGE of 2%-90%: 2% duty = 5% of top speed,
+// 90% duty = maximum. Commanding above 90% buys nothing.
+//
+// *** OPEN: our 3.3 V SV drive may cost ~30% of top speed. [HYPOTHESIS] ***
+// Both remaining manuals specify 5 V PWM amplitude, and the driver's analog
+// curve runs 0.25 V = 5% speed to 4.7 V = maximum. SV is driven straight from a
+// GPIO through a 1.5k series resistor with NO level shifting, so it swings ~3.3 V.
+//   - if the driver reads DUTY   -> 90% duty gives 3000 RPM -> ~1571 mm/s
+//   - if it reads AVERAGE VOLTS  -> 3.3 V gives ~2100 RPM   -> ~1100 mm/s
+// The measured max_lin_mm_s estimates (1155, 1231, 1384, 1657) cluster near the
+// LOWER prediction, which is suggestive but not decisive.
+// Experiment: level-shift SV to 5 V on one wheel and re-measure top speed. If it
+// rises, every wheel has been running at ~70% of capability.
+// See docs/hardware/components.md section 2.
 //
 // Required alongside it (manual, Attentions E — stated three separate times):
 //   *** TURN THE ONBOARD RV POT FULLY LEFT, or external speed control FAILS ***

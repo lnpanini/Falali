@@ -1,18 +1,37 @@
 # TrolleyBot — hardware architecture and parts list
 
-**Last updated:** 2026-08-05
+**Last updated:** 2026-08-05. **Partially superseded 2026-08-16** — see below.
 **Authoritative sources:** `Wheel Drive PCB.net` (Eeschema 9.0.6, 2026-08-05) for every
 GPIO assignment; `docs/BLD-120-English-version.pdf` for driver behaviour; bench
 measurements dated inline.
 
 This document exists because the same facts kept getting re-derived from rendered
-schematics and stale notes, and twice got derived wrong. **Anything here that
-contradicts a comment elsewhere in the repo — trust this, or re-extract from the
-netlist.**
+schematics and stale notes, and twice got derived wrong.
+
+> ## ⚠️ Read `docs/hardware/` first
+>
+> As of **2026-08-16** the handover documentation lives in
+> [`docs/hardware/`](hardware/), and it was built by parsing the KiCad netlists
+> of **all three** boards directly:
+>
+> | | |
+> |---|---|
+> | [`hardware/startup.md`](hardware/startup.md) | power tree and power-up runbook — **none of this is in any KiCad file** |
+> | [`hardware/components.md`](hardware/components.md) | parts, specs, and what is worth salvaging |
+> | [`hardware/boards.md`](hardware/boards.md) | every connector pinout on all three boards, netlist-verified |
+> | [`hardware/fabrication.md`](hardware/fabrication.md) | re-ordering, modifying and repairing the boards |
+>
+> **Where this file and `docs/hardware/` disagree, `docs/hardware/` is newer**
+> and says which netlist line it came from. Sections below that have been
+> superseded are marked inline. The GPIO tables in §2 were re-checked against the
+> netlist on 2026-08-16 and are **correct** — it is the surrounding commentary
+> that had drifted.
 
 ---
 
 ## 1. System topology
+
+> **⚠️ This diagram is stale in two places.** Corrected version below it.
 
 ```
 Raspberry Pi 5  ──USB──  ESP-BASE (Wheel Drive PCB)  ──  4× BLD-120A  ──  4× BLDC motor
@@ -26,6 +45,40 @@ Raspberry Pi 5  ──USB──  ESP-BASE (Wheel Drive PCB)  ──  4× BLD-120
 
                                        4× AS5600 encoder  [REMOVED 2026-08-13]
 ```
+
+**As actually built, 2026-08-16:**
+
+```
+  Xbox BLE gamepad
+        │ (Bluepad32, BLE)
+        ▼
+  ESP-BASE (Wheel Drive PCB) ── J4–J7 ── 4× Driver PCB ── 4× BLD-120A ── 4× BLDC
+  ESP32-S3-DevKitC-1 N16R8              (3V3→open-collector)   (24 V)   (15:1, 150 mm)
+        │
+        ├── 4× VL53L0X ToF     (XSHUT re-addressing, GPIO4-7)
+        ├── 1× BNO085 IMU      (0x4A)
+        ├── 1× ADS1115 (0x48)  ← 4× ACS758LCB current sensors
+        │
+        └── ESP-NOW, WiFi ch 1 ──► ESP-ARM (Arm Subsystem PCB)
+                                     ├── 2× BTS7960 ── wormgear extension (12 V)
+                                     ├── PCA9685 (0x40) ── 4× flipper servo (5 V)
+                                     ├── 4× VL53L0X ToF  (0x30–0x33)
+                                     └── 8× limit switch
+
+  4× AS5600 encoder  [REMOVED 2026-08-13 — no wheel-speed feedback of any kind]
+```
+
+**Two corrections to the original diagram:**
+
+1. **The base↔arm link is ESP-NOW, not UART on GPIO1/2.** The UART never passed
+   a byte and was retired 2026-08-14 — §5 of this document already records
+   this, the diagram was simply never updated.
+2. **The Raspberry Pi 5 is not in the control loop.** The gamepad connects
+   directly to the base ESP over BLE and the docking state machine runs on the
+   base. The Pi-5-as-brain design (decision log, 2026-08-04) was superseded by
+   the ESP32-S3-only prototype. `pi/` remains in the repo but is not part of the
+   running system. **[HYPOTHESIS — inferred from the firmware's structure and
+   the ESP-NOW move; nobody wrote down the moment the Pi was dropped.]**
 
 The encoders never worked on the fabricated board and have been abandoned. There
 is now **no wheel-speed feedback of any kind** — the only drivetrain fault signal
@@ -87,12 +140,29 @@ The driver has a **native PWM speed input**: manual, Speed Command mode C —
 *"speed can be adjusted by PWM control between 1KHz~10KHz, motor speed is
 influenced by duty."* No DAC, op-amp or RC filter needed.
 
-- `kSvPwmFreqHz = 5000` — **1–10 kHz is a hard spec range**, not a preference
-- 1–10 kΩ series resistor between GPIO and SV (manual FAQ A). 1.5 kΩ in use.
-- **SV is a high-impedance voltage input.** Diode test 2026-08-05 read open in
-  both directions, unlike EN/BRK/F-R which show a diode drop. It does *not* load
-  the source — the old "pot-wiper drags it down" claim, and the 2.59 V figure
-  behind it, were the ESP32's weak DAC on the WROOM-32D bench rig, not the driver.
+- ~~`kSvPwmFreqHz = 5000` — **1–10 kHz is a hard spec range**, not a preference~~
+  **[SUPERSEDED — resolved 2026-08-16]** The actual value is
+  **`kSvPwmFreqHz = 2000`**, and the correct range is **1–3 kHz**. The
+  BLD-120A-specific spec sheet (`docs/BLDC-BLD120A-bldc-motor-controller-specs.pdf`)
+  states *"The pulse frequency range: 1-3KHz"*, agreeing with
+  `SYS-BLD-120A-manual.pdf` against `BLD-120-English-version.pdf`'s 1–10 kHz.
+  **The 5 kHz this document used to specify was out of spec.** `pins.h` is right.
+  The datasheet also advises a **2 %–90 % duty range**, with 90 % duty giving
+  maximum speed.
+- 1–10 kΩ series resistor between GPIO and SV (manual FAQ A). 1.5 kΩ in use,
+  fitted as R7 on the Driver PCB.
+- ~~**SV is a high-impedance voltage input.**~~ **[SUPERSEDED — treat as
+  UNVERIFIED]** The diode test of 2026-08-05 read open in both directions, but a
+  later powered test on the same terminals gave conducting readings, and the two
+  cannot both be right. `pins.h` records this contradiction; this section
+  originally reported only the first result. It does not matter in practice —
+  3.3 V PWM at 2 kHz drives all four motors through the adapters, verified by
+  behaviour. Re-measure only if you need the driver's true input model for a
+  redesign.
+
+  What *is* still established: the old "pot-wiper drags it down" claim and the
+  2.59 V figure behind it were the ESP32's weak DAC on the WROOM-32D bench rig,
+  not the driver.
 
 ### Control lines (EN / BRK / F-R) — opto-isolated, idle near 5 V
 
@@ -113,10 +183,19 @@ Each is an optocoupler LED fed from the driver's internal rail. Measured
 | Trim | Function | Required setting |
 |---|---|---|
 | **RV** | speed pot, sums with external input | **fully anticlockwise (left)** — external speed control *fails* otherwise (manual, stated 3×) |
-| **P-sv** | overload power limit, 30–120 W | **set to the motor's rated watts** — wrong value trips the red LED and the motor won't run |
+| **P-sv** | overload trip point. Marked in **watts (30–120 W)** on one revision, **amps (1.6–8 A)** on another — same setting | **5 A ≡ 120 W at 24 V.** Too high *or* too low trips the red LED and the motor won't run |
+| **ACC/DEC** | acceleration & deceleration ramp, **0.3–15 s** | **minimum (0.3 s)** |
 
 P-sv is the *only* hardware overload protection on this drivetrain. It is not a
 speed trim, despite what earlier bench notes claimed.
+
+> **⚠️ [ADDED 2026-08-16] This table used to list two trims. There are three.**
+> The **ACC/DEC** potentiometer ramps every speed change over anywhere from 0.3 to
+> 15 seconds, and **the positions of all four drivers are unrecorded.** A long
+> ramp would invalidate `DeadReckonOdometry`'s assumption that the wheel follows
+> the command immediately, and would be indistinguishable from stiction. See
+> [`hardware/startup.md`](hardware/startup.md) §6. **[VERIFIED — the trim exists
+> and its range; HYPOTHESIS — that it explains any observed behaviour.]**
 
 ---
 
@@ -147,11 +226,23 @@ Pass-through, same pin order both sides (`BRK · EN · F/R · COM · SV`):
 switch `tb::kControlViaMosfet` in `Bld120aMotor.h`, which derives all four
 polarity constants and forces push-pull gate drive. Verified by `static_assert`.
 
-**Device:** BC547 or 2N3904 (NPN, from existing stock). Base current
-(3.3 − 0.7)/10 k = 260 µA against a 440 µA load — saturates hard.
+**Device:** **2N3904** (NPN). Base current (3.3 − 0.7)/10 k = 260 µA against a
+440 µA load — saturates hard.
 
 > ⚠️ **BC547 is C-B-E; 2N3904 is E-B-C** (flat face toward you, legs down).
-> Identical packages, mirrored pinouts. Pick one type and stay with it.
+> Identical packages, mirrored pinouts.
+>
+> **[UPDATED 2026-08-16]** This is no longer a free choice. The adapter is now a
+> fabricated board — `KiCad/Driver PCB/` — whose footprint is
+> `TO-92_Inline_Wide_**EBC**` with a 2N3904 symbol. **A BC547 dropped into those
+> holes unrotated swaps collector and emitter** and reproduces exactly the fault
+> described below. Use 2N3904.
+
+> **[SUPERSEDED 2026-08-16]** The hand-wired adapter described in this section
+> was fabricated as the **Driver PCB** (42.8 × 33.8 mm, ×4). Component values are
+> unchanged — 10 kΩ base, 100 kΩ pulldown, 1.5 kΩ on SV — and the pin order still
+> matches Wheel Drive J4–J7. See [`hardware/boards.md`](hardware/boards.md) §2
+> for the netlist-derived schematic and the per-channel diagnostic procedure.
 
 ### The wiring error that cost an evening (2026-08-05)
 
@@ -238,7 +329,17 @@ Four AS5600 on a TCA9548A mux, never made to work: all four share address `0x36`
 with no address pin, the board commons SDA/SCL, and isolating them needed eight
 trace cuts at the encoder connectors. Resistance checks found two modules at
 60 kΩ and 165 kΩ against 280 kΩ for the healthy pair, and the parasitic-power
-signature pointed at a missing VCC connection in the loom.
+signature pointed at a missing VCC connection.
+
+> **[CORRECTED 2026-08-16] The missing VCC is on the PCB, not in the loom.**
+> `pin 1` of every 1×04 encoder connector — J1, J11, J15, J18 — is unconnected in
+> the netlist. That header carries SDA, SCL and GND only. The AS5600's sole power
+> path was the separate 1×03 analog connector, which is exactly the parasitic-power
+> signature that was observed. No amount of re-looming would have fixed it.
+> **[VERIFIED — netlist]**
+>
+> A later attempt used an external PCA9548-type mux; it overheated and failed with
+> more than two AS5600 attached. **[OBSERVED — Bryan]**
 
 The pin tables are deleted from `pins.h` rather than commented out. GPIO3 and
 GPIO14 are now free; GPIO1 and GPIO2 belong to the arm link.
@@ -295,13 +396,33 @@ caster from the current differential between wheels.
 1. **Prefer `-050B` (bidirectional) over `-050U`.** DC-bus current is nominally
    one-directional, but applying BRK can push energy back toward the supply. `B`
    costs one bit of range and removes the question.
-2. **Supply rail.** The board feeds J8/J9/J12/J14/J17 from **3.3 V** (`3V Wheel`).
-   ACS758 is ratiometric, so at 3.3 V a -050B gives 26.4 mV/A with a 1.65 V zero
-   point — read directly by a 3.3 V ADS1115, no divider, no level shifting.
-   Powering it at 5 V instead puts up to 5 V into a 3.3 V ADC input and needs a
-   divider. **Confirm the rail before wiring.**
+2. **Supply rail — CONFIRMED 3.3 V.** The board feeds J8/J9/J12/J14/J17 from
+   **3.3 V** (`/3V Wheel`). ACS758 is ratiometric, so at 3.3 V a -050B gives
+   26.4 mV/A with a 1.65 V zero point — read directly by a 3.3 V ADS1115, no
+   divider, no level shifting. Powering it at 5 V instead puts up to 5 V into a
+   3.3 V ADC input and needs a divider. ~~Confirm the rail before wiring.~~
+   **[VERIFIED — netlist, 2026-08-16: pin 1 of all four connectors is on
+   `/3V Wheel`.]**
+
+   Likewise the **ADS1115 address is `0x48` fixed in copper** — J8 pin 5 lands on
+   the module's ADDR pin and the board ties it to ground. There is no jumper to
+   set and no way to get it wrong. **[VERIFIED — netlist]**
 3. The sensor is *observation*, not protection. The real trip chain is the driver's
    P-sv overload trim, then the 10 A fuse, then software.
+
+> ## ⚠️ [ADDED 2026-08-16] None of this is live — the sensors are not wired
+>
+> The four ACS758 are physically installed **inline with the negative side of the
+> motor driver supply**, but their outputs are **not connected to
+> J9/J12/J14/J17**. `StallDetector` is reading an ADS1115 that sees nothing.
+>
+> Everything in this section is a correct analysis of a signal path that does not
+> currently exist. Combined with the absence of an ALM terminal and the retired
+> encoders, **the base has no drivetrain fault detection at all** — the trip chain
+> is P-sv and the fuse, full stop.
+>
+> Connecting them would be four wires. See `gotchas.md` Open Issue C and
+> [`hardware/components.md`](hardware/components.md) §4. **[OBSERVED — Bryan]**
 
 ---
 
@@ -361,12 +482,35 @@ the DevKitC socket, J3 and the standoffs.
       8 mm centring tolerance. Likely a gearing/wheel-diameter problem, not a
       firmware one. The driver's PID speed loop may rescue it — **settle with the
       REF+ → 1 kΩ → SV pot sweep.**
-- [ ] `max_lin_mm_s = 300` is wrong; actual is ~1400 mm/s at full command.
-      Odometry currently under-estimates every distance by ~4.7×.
-- [ ] `main.cpp` still passes one shared EN/BRK pair to all four motors.
-- [ ] ACS758LCB-**050B** confirmed as the right part (§6); still to confirm the
-      supply rail is 3.3 V and set ADS1115 ADDR→GND for `0x48`.
-- [ ] Confirm the motor's rated watts, to set P-sv.
+- [x] ~~`max_lin_mm_s = 300` is wrong; actual is ~1400 mm/s at full command.~~
+      **Done.** `config.h:195` sets `c.max_lin_mm_s = 1231.0f`; the `300.0f` in
+      `DeadReckonOdometry.h` is only the struct default and is overridden by
+      `makeOdometryCal()`. Accuracy is still ~±6 % — `gotchas.md` Open Issue B —
+      but docking was restructured so the park point no longer depends on it.
+- [ ] `main.cpp` still passes one shared EN/BRK pair to all four motors. **The
+      board gives each wheel its own** (§2), so this leaves independent per-wheel
+      shutdown unused.
+- [x] ~~ACS758LCB-**050B** confirmed as the right part (§6); still to confirm the
+      supply rail is 3.3 V and set ADS1115 ADDR→GND for `0x48`.~~ **Both resolved
+      from the netlist, 2026-08-16** — the rail is 3.3 V and `0x48` is fixed in
+      copper. See §6.
+- [ ] Confirm the motor's rated watts, to set P-sv. **Still open, and it blocks
+      the start-up procedure** — see [`hardware/startup.md`](hardware/startup.md) §6.
+
+**Added 2026-08-16, from the netlist cross-check:**
+
+- [ ] The **red mushroom button is wired as an enable, not an E-stop.** One wire
+      to fix. `gotchas.md` §18.
+- [ ] The **Arm PCB's servo headers S1–S4 are dead in firmware** — it drives a
+      PCA9685 that has no connector on the board. `gotchas.md` §17.
+- [ ] **Two custom KiCad libraries are missing** (`My_30.007_Library`,
+      `HengLi's Footprint Library`). Boards can be re-ordered as-is but not
+      cleanly re-synced schematic→layout.
+      [`hardware/fabrication.md`](hardware/fabrication.md) §3.
+- [ ] The **BNO085 module pinout is not captured anywhere** — J19 exposes
+      3V3·GND·SCL·SDA on a generic 10-pin header, and some common breakouts put a
+      regulator *output* on pin 2. Verify before seating.
+      [`hardware/boards.md`](hardware/boards.md) §1.
 
 ---
 

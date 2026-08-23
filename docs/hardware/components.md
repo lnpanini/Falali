@@ -103,7 +103,7 @@ Datasheet: [`img/motor-80-flange-spec-table.jpeg`](img/motor-80-flange-spec-tabl
 | Current at rated load | 5 A × 4 = **20 A at 24 V = 480 W** |
 | Same, drawn from the 36 V pack | ~13.3 A ideal, **~15.7 A at 85 % buck efficiency** |
 | Driver headroom | 8 A each = 32 A at 24 V, well above the motors' 20 A |
-| Pack endurance at full drivetrain load | 360 Wh ÷ 480 W ≈ **45 min** |
+| Pack endurance at full drivetrain load | 360 Wh × 0.85 ÷ 480 W ≈ **38 min**, and less in practice — a pack is not discharged to empty |
 
 Two things worth drawing out of that table:
 

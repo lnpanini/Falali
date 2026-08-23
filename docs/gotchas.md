@@ -209,19 +209,50 @@ readings climb at an edge crossing and never fall.
 
 ---
 
-## 9. `pins.h` is netlist-derived, and the silkscreen disagrees with it  **[VERIFIED on hardware]**
+## 9. Reference designators are not GPIO numbers  **[VERIFIED — netlist, 2026-08-16]**
 
-The ToF connectors are labelled **4, 6, 7, 8** on the fabricated board and those
-are FL, FR, RL, RR — but the GPIOs behind them are **4, 5, 6, 7**. Only the first
-label matches its pin. Label "8" is GPIO7, and GPIO8 is the I²C SDA line, which
-can never be an XSHUT: pulling it low during `Vl53l0xArray::begin()` takes the
-whole bus down.
+**This entry was rewritten.** The original claimed the silkscreen contradicted
+`pins.h`, and it was itself partly wrong. What follows was extracted from
+`KiCad/Wheel Drive PCB/Wheel Drive PCB.net` directly. Full tables in
+`docs/hardware/boards.md`.
 
-The current-sense connectors are worse — `J14`, `J17`, `J12`, `J9` map to FL, FR,
-RL, RR, which is not numeric order. **Never infer a channel from a J-number.**
+**The reference designators do not track the GPIOs.** The ToF connectors are
+`TOF5`–`TOF8` and the XSHUT lines behind them are GPIO **4, 5, 6, 7**. No
+arithmetic relates the two, and there is no `TOF4`. GPIO8 is the I²C SDA line and
+can never be an XSHUT — pulling it low during `Vl53l0xArray::begin()` takes the
+whole bus down, ToF and IMU and ADS together.
 
-There is no netlist checked into this repo to verify either against; the KiCad
-project under `KiCad/` is the authority.
+**But the functional silkscreen is trustworthy, and it is what you should read.**
+Every pin on this board is labelled with its function: the pin beside each ToF
+connector's XSHUT reads `XSHUT FL` / `XSHUT FR` / `XSHUT RL` / `XSHUT RR`, and
+the current-sense connectors are labelled `A0`–`A3`. Corner identity on the
+board is unambiguous. Never infer a corner from a **J-number**; always read the
+**label**.
+
+### The correction that matters
+
+The original entry said the current-sense connectors map `J14, J17, J12, J9` →
+FL, FR, RL, RR — "which is not numeric order." **The netlist says otherwise:**
+
+| Connector | J9 | J12 | J14 | J17 |
+|---|---|---|---|---|
+| ADS channel | A0 | A1 | A2 | A3 |
+| Schematic name | **FL** | **FR** | **RL** | **RR** |
+
+They *are* in numeric order. The same wrong table is repeated in the comments in
+`include/pins.h`. **The code is unaffected** — `kCurrentAdsChannel = {0,1,2,3}`
+for FL..RR matches the schematic — but the explanatory comment above it, and the
+lesson this gotcha used to teach, were both wrong.
+
+`pcb_identify.cpp` is cited in `pins.h` as the empirical authority for that
+mapping. Note that it identifies a corner by watching an encoder **and** a
+current channel move together, and half that procedure died with the encoders
+(§13). It can no longer self-verify a corner.
+
+**There is a netlist in this repo** — `KiCad/Wheel Drive PCB/Wheel Drive PCB.net`,
+and one for each of the other two boards. The fabricated `.kicad_pcb` carries an
+identical net set, so layout and schematic agree. Check against it rather than
+re-deriving from a rendered schematic.
 
 ---
 
@@ -281,8 +312,25 @@ hardware somebody does. `kMuxAddr` survives only because the bring-up scan
 reports whether the mux is present.
 
 **There is no wheel-speed feedback of any kind.** Per-wheel current
-(`cfg::kWheelStallAmps`) is the only drivetrain fault signal, and it is still
-uncalibrated under load.
+(`cfg::kWheelStallAmps`) was the only drivetrain fault signal, and as of
+2026-08-16 it turns out not to be connected either — see Open Issue C.
+
+> **[ADDED 2026-08-16] The motors have hall sensors. Nobody is using them.**
+>
+> The motor datasheet gives the cable as **`AWG20 × 3 + AWG26 × 5`** — three
+> phase wires and five hall wires (V+, GND, HA, HB, HC). The BLD-120A just does
+> not bring them out; it has no FG or tacho terminal, which is where "no speed
+> feedback" came from.
+>
+> **If speed feedback is ever wanted back, tap the halls — do not revive the
+> AS5600s.** One hall line per motor into a spare GPIO gives 3 pulses per motor
+> revolution = 45 per wheel revolution at 15:1. That is plenty for stall
+> detection and speed estimation, it needs no I²C, and it sidesteps both
+> board-level faults that killed the encoders.
+>
+> **[HYPOTHESIS — wire count is from the datasheet; nobody has scoped them.]**
+> *Experiment: 24 V applied, turn a wheel by hand, scope any AWG26 conductor
+> against motor ground. A 3-per-rev square wave confirms it.*
 
 ---
 
@@ -330,6 +378,112 @@ only thing left that catches a base parked badly on that axis.
 
 ---
 
+## 17. The Arm PCB's servo headers are not what drives the servos  **[VERIFIED — netlist + source, 2026-08-16]**
+
+The Arm Subsystem PCB has four servo headers, `S1`–`S4`, wired to **GPIO10, 47,
+4 and 14**. They are labelled `Servo X1`, `Servo X2`, `Servo Y1`, `Servo Y2` in
+the schematic. Everything about the board says "plug your servos in here."
+
+**The firmware never touches those pins.** `arm/src/MotorController.h` holds an
+`Adafruit_PWMServoDriver` and every servo movement goes through it — a **PCA9685
+at `0x40` over I²C**, channels 0–3. `grep -rn "PCA9685\|setPWM" arm/src/` finds
+the breakout; nothing in `arm/src/` mentions GPIO 10, 47, 4 or 14.
+
+And **there is no PCA9685 connector on the board.** The only I²C access points
+are the four ToF headers.
+
+**Confirmed on the robot 2026-08-16 [OBSERVED — Bryan]:** a PCA9685 is fitted,
+and it is plugged into **one of the ToF headers** to reach I²C. The servos go on
+the PCA9685's own outputs. `S1`–`S4` are dead copper.
+
+Two consequences of that arrangement worth knowing before you touch it:
+
+- **One ToF header is doing double duty.** The arm still needs all four ToF
+  sensors on the bus, so whichever sensor lost its header is daisy-chained
+  through the PCA9685 breakout. That makes the arm's I²C a hand-built chain, not
+  the star the board draws — check it physically before believing any bus map.
+- The PCA9685 drives the **four flipper servos**, *not* the wormgear extension
+  motors. The wormgear motors go through the two BTS7960 modules on direct GPIO
+  (J1/J2). This is easy to misremember backwards. **[VERIFIED — `setPWM()` is
+  called only from `setServoPulse()`, channels 0–3.]**
+
+Why this is the expensive kind of mistake: a servo plugged into the header the
+board provides, on a board whose every other connector works, will simply never
+move. There is no error, no log line, and the obvious conclusion is a dead servo.
+
+**Two ways of closing the mismatch.** Respinning the board with a PCA9685 header
+is the intuitive one; rewriting `MotorController` to use four LEDC channels on
+the pins already routed needs no new hardware and frees the I²C bus. Full detail
+in `docs/hardware/boards.md` §3.
+
+---
+
+## 18. The big red mushroom button energises, it does not stop  **[VERIFIED — Bryan, 2026-08-16]**
+
+It is not an E-stop. It is an **enable**, on the 12 V arm rail.
+
+> **Pressed = arm rail ON. Released (twist-and-pull) = arm rail OFF.**
+
+Under stress, everyone slaps a mushroom button. On this machine that **powers the
+arm up.** It also does not switch the 24 V motor rail at all, so even used
+correctly it does not stop the wheels — only firmware does.
+
+The fitted part is a **1NO 1NC DPST** latching mushroom switch, so the
+normally-closed contact is physically present and **currently unused**. The rail
+is on the normally-open contact. Moved to NC the behaviour would invert to what
+most people expect, and nothing else in the system would change.
+
+It gates the **input** side of the 12 V buck, which is what makes the inrush
+staggering in `docs/hardware/startup.md` §3 work.
+
+As it stands it is a power switch wearing an emergency stop's hat. See
+`docs/hardware/startup.md` §1.
+
+---
+
+## 19. The driver has a third trim that ramps every command  **[VERIFIED — spec sheet, 2026-08-16]**
+
+Every note in this project listed **two** BLD-120A adjusters, RV and P-sv. There
+are **three**. The missing one is **ACC/DEC**, and the datasheet is blunt about
+what it does:
+
+> *"This potentiometer can be used for adjusting acceleration and deceleration
+> time directly … The range can be set is: 0.3s–15s."*
+
+**The positions of all four drivers are unrecorded.** At anything above the short
+end of that range the driver ramps every speed change over seconds — and the
+firmware has no idea:
+
+- `DeadReckonOdometry` integrates the **commanded** velocity (§12) and assumes
+  the wheel follows immediately. Every start and stop then over-estimates
+  distance travelled by the ramp.
+- Docking issues short corrective moves. A move shorter than the ramp **never
+  reaches its commanded speed at all.**
+- It would look exactly like stiction — a wheel that "ignores" small commands.
+  Which is precisely the symptom §12 records.
+
+This has the shape everything else in this file has: **the fault and the correct
+behaviour produce identical observations.** A sluggish wheel looks like friction,
+looks like a bad calibration constant, looks like a firmware bug. It could also
+be a dial someone turned once.
+
+*Reading the four positions establishes whether this is a factor at all.
+Changing them and re-running a dock would show whether it accounts for the
+low-speed behaviour in §12.*
+
+Two smaller things from the same document:
+
+- **P-sv is marked in amps on some units and watts on others** (1.6–8 A vs
+  30–120 W). Same setting. Ours is **5 A ≡ 120 W at 24 V**. Too high is a fault
+  as well as too low — the FAQ says so explicitly.
+- **The English manual's feature list is boilerplate and contradicts the rest of
+  the document.** It advertises *"Speed signal output"* and *"Abnormal alarm
+  signal output"*; the terminal table a few pages later lists only
+  `SV COM F/R EN BRK`. There is no FG and no ALM pin — §13 and `pins.h` were
+  right, and the feature bullet is the thing that is wrong.
+
+---
+
 # Open issues — handed over unfixed
 
 These are known, reproducible, and **deliberately not fixed**. They are recorded
@@ -353,26 +507,49 @@ consulted in a way that halts it.
 - The limit switch demonstrably works during manual retract — which exercises
   `X_ARM_MIN`/`LIMIT_X1`/`LIMIT_X2`, none of which extend looks at.
 
-**What is not established — these are hypotheses, in rough order of likelihood:**
+**Hypothesis 1 is now dead. [VERIFIED — Arm PCB netlist, 2026-08-16]**
 
-1. `X_ARM_MAX` on GPIO42 is not wired, or is wired to a different input. Fits
-   every observation, but **no meter has been put on that pin.**
-2. There is no physical max-travel switch on the X axis at all, and the mechanical
-   stop is purely a hard stop. Would mean the firmware is asking for a signal the
-   machine does not produce.
+The Arm Subsystem PCB was copied into this repo on 2026-08-16 and its netlist
+read. It says:
+
+```
+/X Arm Max : SW3.1[1]  U1.39[GPIO42/MTMS]
+```
+
+`SW3` is the header named **"X Limit Max"**, pin 1 goes to **GPIO42**, pin 2 goes
+to ground. `LimitSwitches.h` sets `INPUT_PULLUP` on GPIO42 and treats LOW as
+pressed. **The board and the firmware agree exactly.** The old leading
+hypothesis — "`X_ARM_MAX` is not wired, or is wired to a different input" — is
+ruled out at the PCB level. All eight limit-switch nets match `LimitSwitches.h`.
+
+**What is not established — remaining hypotheses, re-ranked:**
+
+1. **No switch is physically fitted at SW3**, or one is fitted but the mechanism
+   reaches its hard stop before closing it. Nothing electrical would reveal this,
+   and it is now the most likely explanation.
+2. **A loom fault between the SW3 header and the switch** — open wire, bad crimp,
+   connector one position off. Also invisible to the netlist.
 3. GPIO42 is compromised as an input. It is in the ESP32-S3 JTAG block
    (MTCK/MTDO/MTDI/MTMS on 39–42) and GPIO3 — a JTAG-source strapping pin — is
-   also in use as `Y_ARM_MIN`. **Speculative. No evidence beyond the pin numbers.**
+   also in use as `Y_ARM_MIN`. **Now less likely, not more:** the *base* board
+   drives GPIO42 as `FL SV` and it works. Still speculative.
 
 **The experiment that settles it**, ~30 seconds: connect the arm over USB
 (`cd arm && pio device monitor -e esp32s3`), send `m` for the live switch monitor
 — motors off, prints on every state change — and press the X max stop by hand.
 
-- `X Arm Max` changes → the input works; hypotheses 1 and 3 die, and the fault is
-  that the switch is not reached at the position the mechanism stops at.
-- `Limit X1` or `X2` changes instead → it is wired to a retract input, and the fix
-  is one line in `isXExtendBlocked()`.
-- Nothing changes → hypothesis 1 or 2. Meter from the switch to the pin.
+- `X Arm Max` changes → the input works end to end; hypotheses 2 and 3 both die,
+  and the fault is that the switch is not reached at the position the mechanism
+  actually stops at. Mechanical fix.
+- `Limit X1` or `X2` changes instead → the loom is one connector off and the
+  switch is landing on a retract input (hypothesis 2). Fix the loom — **do not**
+  "fix" it by adding that input to `isXExtendBlocked()`, which would make extend
+  halt at the retract end and look like a different bug entirely.
+- Nothing changes → hypothesis 1 or 2. Meter from the switch contacts to the
+  SW3 header, then from the header to pin GPIO42.
+
+Since the netlist rules out a PCB fault, **start at the mechanism, not the
+electronics.** Look for the switch before you look for the signal.
 
 **Why it matters more than it looks:** extend has no redundancy. If that switch
 is absent, the only things stopping the motor are the ToF — which reports 8191 mm
@@ -389,14 +566,54 @@ different bug entirely.
 Estimates from four methods spanned 1155–1657 mm/s. The value in `config.h` rests
 partly on the cone-geometry model in §8, which has not been independently tested.
 
+> **[NARROWED 2026-08-16 — motor datasheet]** The gearing gives a hard ceiling
+> that no calibration method can exceed:
+>
+> ```
+> 3000 RPM ÷ 15  = 200 RPM at the wheel
+> π × 150 mm     = 471.2 mm circumference
+> 200/60 × 471.2 = 1571 mm/s
+> ```
+>
+> **This rests on the 15:1 ratio**, which is inherited from earlier project notes
+> rather than read off the gearbox, and the purchase listing groups this motor as
+> "ratio 10–18". At 18:1 the ceiling would be 1309 mm/s and would rule out 1384
+> as well; at 10:1 it would be 2356 mm/s and rule out nothing. Confirming the
+> ratio from the gearbox label would firm all of this up.
+>
+> **The 1657 mm/s estimate is 105 % of that and is rejected outright.** 1155,
+> 1231 and 1384 all survive at 74 %, 78 % and 88 % of ceiling respectively. This
+> does not confirm the configured 1231, but it caps the range from above with a
+> number that owes nothing to the cone model in §8 — the first independent
+> constraint this quantity has had. Datasheet in
+> `docs/hardware/img/motor-80-flange-spec-table.jpeg`.
+
 Largely defused: docking was restructured so the park point does not depend on it
 (§14). It still affects timeouts and a ~2.7 mm lag term. Worth re-measuring
 properly — a timed run over a long straight, from a rolling start — before anyone
 relies on the odometry for anything new.
 
-## C. `kWheelStallAmps` has never been calibrated under load
+## C. The current sensors are not connected, so there is no fault signal at all **[OBSERVED — Bryan, 2026-08-16]**
 
-Set to 10 A from bench measurements taken with the wheels off the ground. It is
-the **only** drivetrain fault signal the base has (§13), and it has never seen a
+**This entry used to say `kWheelStallAmps` was merely uncalibrated. It is worse
+than that.**
+
+The four ACS758 are physically installed, inline with the **negative side of the
+motor driver supply** — but their outputs are **not wired to J9/J12/J14/J17**.
+They conduct current and report to nobody. `StallDetector` reads an ADS1115 that
+sees nothing.
+
+Combined with §13 (no encoders) and the absence of an ALM terminal, **the base
+has no drivetrain fault detection whatsoever.** What remains is the driver's P-sv
+overload trim and the pack fuse.
+
+Connecting them is four wires, one per sensor, from each `VIOUT` to pin 4 of its
+connector; 3.3 V and ground are already on pins 1 and 2. Low-side sensing is
+electrically fine — the ACS758's conduction path is galvanically isolated from
+its signal side. Corner mapping: **J9=FL=A0, J12=FR=A1, J14=RL=A2, J17=RR=A3**
+(`docs/hardware/boards.md` §1).
+
+The original caveat would still apply afterwards. `kWheelStallAmps = 10 A` came
+from bench measurements with the wheels off the ground and has never seen a
 loaded trolley. A current sensor also cannot distinguish a stall from a heavy
-load, so treat it as protection against something catastrophic, not as a limit.
+load, so it is protection against something catastrophic rather than a limit.

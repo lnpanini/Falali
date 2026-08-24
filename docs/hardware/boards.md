@@ -10,6 +10,9 @@ disagreement is called out rather than smoothed over.
 | **Driver PCB** ×4 | 42.8 × 33.8 mm | `KiCad/Driver PCB/` | 3.3 V → open-collector adapter, one per motor |
 | **Arm Subsystem PCB** | 110 × 110 mm | `KiCad/Arm Subsystem PCB/` | arm ESP + 2 H-bridges + 4 servos + 8 limit switches |
 
+Schematic / layout / 3D-view renders for every board (including the historical
+PCA9548A breakout) are indexed in [`KiCad/README.md`](../../KiCad/README.md#board-renders).
+
 The Arm Subsystem PCB is **by Kai Xiang and Heng Li, EPD Batch of 2028**, as is
 the `arm/` firmware.
 

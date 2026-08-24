@@ -60,7 +60,9 @@ nobody mistakes a gap for a completed survey.
 
 ### Motor — 80 mm flange series
 
-Datasheet: [`img/motor-80-flange-spec-table.jpeg`](img/motor-80-flange-spec-table.jpeg).
+Datasheet: [`img/motor-80-flange-spec-table.jpeg`](img/motor-80-flange-spec-table.jpeg):
+
+![80 mm flange motor datasheet spec table](img/motor-80-flange-spec-table.jpeg)
 
 | | |
 |---|---|

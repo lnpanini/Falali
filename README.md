@@ -204,9 +204,24 @@ folder). Board designs by Kai Xiang & Heng Li (arm/wheel sensor side) and Bryan 
 
 </details>
 
-Function diagrams: [system flow](docs/function-diagram-01-system-flow.svg) ·
-[arm subsystem](docs/function-diagram-02-arm-subsystem.svg). More photos:
-[`docs/media/photos/`](docs/media/photos/).
+### Function diagrams
+
+| System flow | Arm subsystem |
+|---|---|
+| [![System flow function diagram](docs/function-diagram-01-system-flow.svg)](docs/function-diagram-01-system-flow.png) | [![Arm subsystem function diagram](docs/function-diagram-02-arm-subsystem.svg)](docs/function-diagram-02-arm-subsystem.png) |
+
+*(SVGs render inline above; click through for the higher-resolution PNGs.)*
+
+<details>
+<summary>More photos</summary>
+
+| | | |
+|---|---|---|
+| ![Team after final presentation](docs/media/photos/team-after-final-presentation.jpg) | ![Exhibition day](docs/media/photos/team-exhibition-day.jpg) | ![Fablab exhibition](docs/media/photos/team-fablab-exhibition.jpg) |
+| ![Laser cutting the enclosure](docs/media/photos/laser-cutting-enclosure.jpg) | | |
+
+All photos: [`docs/media/photos/`](docs/media/photos/).
+</details>
 
 ## Team — Group 10
 

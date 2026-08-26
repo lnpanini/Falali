@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Wheels:
-    """Normalised wheel commands, each in [-1, 1]. Order matches tb::Corner."""
+    """Normalised wheel commands, each in [-1, 1]. Order matches fal::Corner."""
 
     fl: float
     fr: float

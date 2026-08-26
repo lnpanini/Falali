@@ -3,7 +3,7 @@
 
 #include "IMotor.h"
 
-namespace tb {
+namespace fal {
 
 class FakeMotor : public IMotor {
 public:
@@ -25,4 +25,4 @@ private:
   bool fault_ = false;
 };
 
-} // namespace tb
+} // namespace fal

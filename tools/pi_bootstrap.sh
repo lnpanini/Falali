@@ -56,7 +56,7 @@ done
 echo; ok "Pi at $IP"
 
 # --- 2. SSH key --------------------------------------------------------------
-[ -f "$KEY" ] || ssh-keygen -t ed25519 -f "$KEY" -N "" -C "$(whoami)@mac-trolleybot" >/dev/null
+[ -f "$KEY" ] || ssh-keygen -t ed25519 -f "$KEY" -N "" -C "$(whoami)@mac-falali" >/dev/null
 
 SSH="ssh -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 $TB_USER@$IP"
 if $SSH -o BatchMode=yes true 2>/dev/null; then
@@ -85,9 +85,9 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3-venv python3-
 # port for seconds. It WILL interfere with the ESP link.
 sudo systemctl disable --now ModemManager 2>/dev/null || true
 sudo usermod -aG dialout "$USER"
-mkdir -p ~/trolleybot
-[ -d ~/trolleybot/.venv ] || python3 -m venv ~/trolleybot/.venv
-~/trolleybot/.venv/bin/pip install -q --upgrade pip pyserial-asyncio-fast numpy
+mkdir -p ~/falali
+[ -d ~/falali/.venv ] || python3 -m venv ~/falali/.venv
+~/falali/.venv/bin/pip install -q --upgrade pip pyserial-asyncio-fast numpy
 echo "provisioned"
 REMOTE
 [ $? -eq 0 ] && ok "packages + venv ready" || no "provisioning had errors (see above)"
@@ -95,7 +95,7 @@ REMOTE
 # --- 4. copy the bridge ------------------------------------------------------
 c "==> copying pi/ to the Pi"
 rsync -az --delete -e "ssh -o StrictHostKeyChecking=accept-new" \
-      "$REPO_ROOT/pi/" "$TB_USER@$IP:~/trolleybot/pi/" && ok "pi/ synced" || no "rsync failed"
+      "$REPO_ROOT/pi/" "$TB_USER@$IP:~/falali/pi/" && ok "pi/ synced" || no "rsync failed"
 
 # --- 5. report what the Pi can see -------------------------------------------
 c "==> hardware report (read-only, no motion commanded)"
@@ -118,4 +118,4 @@ done
 REMOTE
 
 c "==> done"
-echo "Next: ssh $TB_USER@$IP  then  cd ~/trolleybot && .venv/bin/python -m pi.bridge --dry-run"
+echo "Next: ssh $TB_USER@$IP  then  cd ~/falali && .venv/bin/python -m pi.bridge --dry-run"

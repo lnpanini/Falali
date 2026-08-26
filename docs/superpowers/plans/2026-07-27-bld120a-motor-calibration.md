@@ -18,7 +18,7 @@ Spec: `docs/superpowers/specs/2026-07-27-bld120a-motor-calibration-design.md`
 - **`x` must abort at any point, from any state.** Every routine is a state machine polled from `loop()`; `delay()` is forbidden in routine code.
 - **Stall detection is armed for the entire run** and no routine may disable it, including during Phase 2's deliberate stop captures.
 - Routines refuse to start while the brake is latched (`x` sets `g_brake` with no auto-clear) and must say why.
-- Pure C++17 in `lib/domain/`: no Arduino headers, `namespace tb`, `#pragma once`, trailing-underscore privates.
+- Pure C++17 in `lib/domain/`: no Arduino headers, `namespace fal`, `#pragma once`, trailing-underscore privates.
 - CSV rows are prefixed `CSV,` so they can be grepped out of the interleaved 2 Hz status stream.
 - Host tests run with `pio test -e native`. Firmware builds with `pio run -e bench_motor`.
 
@@ -35,7 +35,7 @@ Safety-critical and entirely time/threshold logic, so it is built and tested wit
 
 **Interfaces:**
 - Consumes: nothing (first task)
-- Produces: `tb::StallConfig{ int break_away_cmd; float rpm_floor; uint32_t trip_ms; uint32_t grace_ms; }`, `tb::StallDetector` with `void reset(uint32_t now_ms)`, `void noteCommandIncrease(uint32_t now_ms)`, `bool update(uint32_t now_ms, int cmd, float rpm)` returning true on the trip edge, `bool tripped() const`, `int trippedAtCmd() const`
+- Produces: `fal::StallConfig{ int break_away_cmd; float rpm_floor; uint32_t trip_ms; uint32_t grace_ms; }`, `fal::StallDetector` with `void reset(uint32_t now_ms)`, `void noteCommandIncrease(uint32_t now_ms)`, `bool update(uint32_t now_ms, int cmd, float rpm)` returning true on the trip edge, `bool tripped() const`, `int trippedAtCmd() const`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -49,7 +49,7 @@ Create `test/test_stall_detector/test_stall_detector.cpp`:
 
 #include "StallDetector.h"
 
-using namespace tb;
+using namespace fal;
 
 void setUp() {}
 void tearDown() {}
@@ -194,7 +194,7 @@ Create `lib/domain/StallDetector.h`:
 
 #include <stdint.h>
 
-namespace tb {
+namespace fal {
 
 struct StallConfig {
   // Below this command the motor is expected to be still, so zero RPM is normal
@@ -232,7 +232,7 @@ private:
   uint32_t grace_until_    = 0;
 };
 
-} // namespace tb
+} // namespace fal
 ```
 
 Create `lib/domain/StallDetector.cpp`:
@@ -240,7 +240,7 @@ Create `lib/domain/StallDetector.cpp`:
 ```cpp
 #include "StallDetector.h"
 
-namespace tb {
+namespace fal {
 
 static inline float absf(float v) { return v < 0.0f ? -v : v; }
 
@@ -279,7 +279,7 @@ bool StallDetector::update(uint32_t now_ms, int cmd, float rpm) {
   return false;
 }
 
-} // namespace tb
+} // namespace fal
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -307,7 +307,7 @@ All the curve arithmetic. Kept out of the firmware so it can be tested against s
 
 **Interfaces:**
 - Consumes: nothing
-- Produces: `tb::CalPoint{ int cmd; float sv_volts; float rpm; }`, `tb::LinearFit{ float slope_rpm_per_volt; float intercept_rpm; bool valid; }`, and free functions `LinearFit fitLinear(const CalPoint*, size_t)`, `int breakAwayCmd(const CalPoint*, size_t, float)`, `int dropOutCmd(const CalPoint*, size_t, float)`, `int kneeCmd(const CalPoint*, size_t, const LinearFit&, float, float)`, `float gearRatio(int32_t, float, int32_t)`
+- Produces: `fal::CalPoint{ int cmd; float sv_volts; float rpm; }`, `fal::LinearFit{ float slope_rpm_per_volt; float intercept_rpm; bool valid; }`, and free functions `LinearFit fitLinear(const CalPoint*, size_t)`, `int breakAwayCmd(const CalPoint*, size_t, float)`, `int dropOutCmd(const CalPoint*, size_t, float)`, `int kneeCmd(const CalPoint*, size_t, const LinearFit&, float, float)`, `float gearRatio(int32_t, float, int32_t)`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -321,7 +321,7 @@ Create `test/test_motor_cal_analysis/test_motor_cal_analysis.cpp`:
 
 #include "MotorCalAnalysis.h"
 
-using namespace tb;
+using namespace fal;
 
 void setUp() {}
 void tearDown() {}
@@ -465,7 +465,7 @@ Create `lib/domain/MotorCalAnalysis.h`:
 #include <stddef.h>
 #include <stdint.h>
 
-namespace tb {
+namespace fal {
 
 struct CalPoint {
   int   cmd      = 0;      // 0..255 command
@@ -500,7 +500,7 @@ int kneeCmd(const CalPoint* pts, size_t n, const LinearFit& fit, float tol_pct, 
 // Returns 0 when wheel_revs is 0 (caller treats as invalid).
 float gearRatio(int32_t motor_counts, float wheel_revs, int32_t cpr);
 
-} // namespace tb
+} // namespace fal
 ```
 
 Create `lib/domain/MotorCalAnalysis.cpp`:
@@ -508,7 +508,7 @@ Create `lib/domain/MotorCalAnalysis.cpp`:
 ```cpp
 #include "MotorCalAnalysis.h"
 
-namespace tb {
+namespace fal {
 
 static inline float absf(float v) { return v < 0.0f ? -v : v; }
 
@@ -566,7 +566,7 @@ float gearRatio(int32_t motor_counts, float wheel_revs, int32_t cpr) {
   return counts / ((float)cpr * (wheel_revs < 0.0f ? -wheel_revs : wheel_revs));
 }
 
-} // namespace tb
+} // namespace fal
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -591,8 +591,8 @@ Wires Task 1 into the running rig, independent of any calibration routine. After
 - Modify: `src/bench_motor.cpp`
 
 **Interfaces:**
-- Consumes: `tb::StallDetector`, `tb::StallConfig` from Task 1
-- Produces: globals `g_rpmFast` (float, RPM over a 100 ms window), `g_stall` (`tb::StallDetector`), `g_breakAwayCmd` (int, default 40), and `bool calGuardOk(const char* what)` which returns false and prints a reason when the brake is latched or the encoder is absent
+- Consumes: `fal::StallDetector`, `fal::StallConfig` from Task 1
+- Produces: globals `g_rpmFast` (float, RPM over a 100 ms window), `g_stall` (`fal::StallDetector`), `g_breakAwayCmd` (int, default 40), and `bool calGuardOk(const char* what)` which returns false and prints a reason when the brake is latched or the encoder is absent
 
 **No `platformio.ini` change is needed.** `[env:bench_motor]` already sets
 `lib_ignore = hal_esp32`, which excludes only the Arduino adapters; `lib/domain`
@@ -622,7 +622,7 @@ uint32_t g_fastTime  = 0;
 
 // Break-away defaults to 40 until calsweep measures the real value.
 int g_breakAwayCmd = 40;
-tb::StallDetector g_stall;
+fal::StallDetector g_stall;
 ```
 
 - [ ] **Step 2: Update the fast RPM and poll the detector in `loop()`**
@@ -733,7 +733,7 @@ git commit -m "feat(bench): arm StallDetector — replaces the rig's missing cur
 - Consumes: `calGuardOk()`, `g_stall`, `g_rpmFast` from Task 3; existing `g_encPos`, `g_encOk`, `g_enc`, `estop()`, `setCommand()`
 - Produces: `enum class CalState`, globals `g_cal` (state), `g_calLeg`, `g_calIdx`, `g_calPrevRpm`, and `constexpr float GEAR_RATIO = 15.0f` (Task 6 uses it); console command `calsweep`
 
-Note: the firmware does **not** use `tb::CalPoint` / `fitLinear` — it only emits
+Note: the firmware does **not** use `fal::CalPoint` / `fitLinear` — it only emits
 CSV. The Task 2 analysis runs on the host over that CSV, which is why it was worth
 keeping out of the firmware in the first place.
 
@@ -1043,7 +1043,7 @@ git commit -m "feat(bench): add calstep — rise/coast/brake response logged at 
 - Modify: `src/bench_motor.cpp`
 
 **Interfaces:**
-- Consumes: `calGuardOk()`, `tb::gearRatio()` from Task 2, `GEAR_RATIO` from Task 4
+- Consumes: `calGuardOk()`, `fal::gearRatio()` from Task 2, `GEAR_RATIO` from Task 4
 - Produces: console commands `calgear [cmd]` and `revs <n>`
 
 - [ ] **Step 1: Add gear-run state**
@@ -1103,7 +1103,7 @@ static void cmdRevs(SerialCommands* s) {
   const char* arg = s->Next();
   if (!arg) { Serial.println(F("? usage: revs <wheel revolutions observed>")); return; }
   const float revs = atof(arg);
-  const float measured = tb::gearRatio(g_gearCounts, revs, ENC_CPR);
+  const float measured = fal::gearRatio(g_gearCounts, revs, ENC_CPR);
   if (measured <= 0.0f) { Serial.println(F("? revolutions must be > 0")); return; }
   const float err = 100.0f * (measured - GEAR_RATIO) / GEAR_RATIO;
   Serial.println(F("CSV,gear,motor_counts,wheel_revs_reported,measured_ratio,label_ratio,error_pct"));

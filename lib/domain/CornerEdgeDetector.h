@@ -8,7 +8,7 @@
 
 #include "types.h"
 
-namespace tb {
+namespace fal {
 
 // THREE INDEPENDENT DEFENCES, because a corner can lie in three different ways.
 //
@@ -65,4 +65,4 @@ private:
   uint16_t mm_[kNumCorners] = {0, 0, 0, 0};
 };
 
-} // namespace tb
+} // namespace fal

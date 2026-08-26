@@ -11,7 +11,7 @@
 
 #include "IAlignmentSensor.h"
 
-namespace tb {
+namespace fal {
 
 class Vl53l0xArray : public IAlignmentSensor {
 public:
@@ -149,4 +149,4 @@ private:
   VL53L0X sensors_[kMaxZones];
 };
 
-} // namespace tb
+} // namespace fal

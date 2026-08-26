@@ -6,7 +6,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-namespace tb {
+namespace fal {
 
 struct CalPoint {
   int   cmd      = 0;      // 0..255 command
@@ -41,4 +41,4 @@ int kneeCmd(const CalPoint* pts, size_t n, const LinearFit& fit, float tol_pct, 
 // Returns 0 when wheel_revs is 0 (caller treats as invalid).
 float gearRatio(int32_t motor_counts, float wheel_revs, int32_t cpr);
 
-} // namespace tb
+} // namespace fal

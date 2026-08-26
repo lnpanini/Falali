@@ -3,7 +3,7 @@
 
 #include "IClock.h"
 
-namespace tb {
+namespace fal {
 
 class FakeClock : public IClock {
 public:
@@ -16,4 +16,4 @@ private:
   uint32_t now_ = 0;
 };
 
-} // namespace tb
+} // namespace fal

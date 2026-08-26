@@ -17,7 +17,7 @@
 #include "SafetyMonitor.h"
 #include "types.h"
 
-namespace tb {
+namespace fal {
 
 enum class DockState : uint8_t {
   Idle,
@@ -78,7 +78,7 @@ struct DockingConfig {
   float side_offset_mm = 0.0f;   // platform-centre offset from the side sensor line
   float centre_tol_mm = 8.0f;    // "centred" tolerance
   // Run the SECOND centring axis at all. Some geometries can only correct one:
-  // on TrolleyBot the trolley's own wheels block travel along the lateral axis
+  // on Falali the trolley's own wheels block travel along the lateral axis
   // once the base is underneath, so CenterY would command motion the chassis
   // physically cannot make and simply time out. Skipping it goes CenterX ->
   // Confirm, handing the remaining axis to the arm's own sensors.
@@ -161,4 +161,4 @@ private:
   uint32_t confirm_since_ms_ = 0;
 };
 
-} // namespace tb
+} // namespace fal

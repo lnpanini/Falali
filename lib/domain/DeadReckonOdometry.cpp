@@ -2,7 +2,7 @@
 
 #include "DeadReckonOdometry.h"
 
-namespace tb {
+namespace fal {
 
 void DeadReckonOdometry::update(const DriveCommand& cmd, uint32_t now_ms) {
   if (!have_last_) {  // first tick just establishes the time base
@@ -28,4 +28,4 @@ void DeadReckonOdometry::update(const DriveCommand& cmd, uint32_t now_ms) {
   pose_.theta_rad += cmd.omega * cal_.max_ang_rad_s * dt;
 }
 
-} // namespace tb
+} // namespace fal

@@ -2,7 +2,7 @@
 
 #include "DockingStateMachine.h"
 
-namespace tb {
+namespace fal {
 
 namespace {
 float absf(float v) { return v < 0 ? -v : v; }
@@ -284,4 +284,4 @@ const char* DockingStateMachine::stateName() const {
   return "?";
 }
 
-} // namespace tb
+} // namespace fal

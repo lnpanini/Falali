@@ -1,8 +1,8 @@
 # Falali — a 30.007 project
 
-ESP32-S3 under-ride docking firmware for **TrolleyBot** — an AMR-style **under-ride platform** that
-drives beneath a textile trolley, uses upward-facing time-of-flight sensors to confirm it is under
-the trolley and centred, **clamps** onto the underside, and then moves the trolley.
+An AMR-style **under-ride platform** that drives beneath a textile trolley, uses upward-facing
+time-of-flight sensors to confirm it is under the trolley and centred, **clamps** onto the
+underside, and then moves the trolley. ESP32-S3 firmware, hardware and documentation.
 
 - **Controller:** ESP32-S3-WROOM-1 **N16R8** (16 MB flash, 8 MB octal PSRAM)
 - **No** LiDAR, camera, ROS 2, SLAM, or mapping.
@@ -20,7 +20,7 @@ the trolley and centred, **clamps** onto the underside, and then moves the troll
 > is the older companion and is partly superseded by it. The pin table further down this README is
 > the *pre-PCB design intent* and does **not** match the fabricated board.
 
-Full design: [`docs/superpowers/specs/2026-07-06-trolleybot-esp32-docking-design.md`](docs/superpowers/specs/2026-07-06-trolleybot-esp32-docking-design.md).
+Full design: [`docs/superpowers/specs/2026-07-06-falali-esp32-docking-design.md`](docs/superpowers/specs/2026-07-06-falali-esp32-docking-design.md).
 
 ## Safety principle
 

@@ -1,4 +1,4 @@
-# Raspberry Pi 5 setup runbook — TrolleyBot main controller
+# Raspberry Pi 5 setup runbook — Falali main controller
 
 Companion to [`docs/superpowers/specs/2026-08-04-rpi5-main-controller-design.md`](superpowers/specs/2026-08-04-rpi5-main-controller-design.md).
 Follow in order. Steps 1–3 are the ones that bite people.
@@ -74,7 +74,7 @@ udevadm info -a -n /dev/ttyUSB0 | grep -E 'ATTRS\{(idVendor|idProduct|serial)\}'
 Repeat for the other. Then:
 
 ```bash
-sudo tee /etc/udev/rules.d/99-trolleybot.rules >/dev/null <<'EOF'
+sudo tee /etc/udev/rules.d/99-falali.rules >/dev/null <<'EOF'
 # Match on the USB-serial adapter's unique serial number, not the port order.
 SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{serial}=="<BASE_SERIAL>", SYMLINK+="ttyTB_BASE", MODE="0660", GROUP="dialout"
 SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{serial}=="<ARM_SERIAL>",  SYMLINK+="ttyTB_ARM",  MODE="0660", GROUP="dialout"
@@ -101,7 +101,7 @@ ls -l /dev/ttyTB_*
 ## 4. Python environment
 
 ```bash
-mkdir -p ~/trolleybot && cd ~/trolleybot
+mkdir -p ~/falali && cd ~/falali
 python3 -m venv .venv
 source .venv/bin/activate
 pip install pyserial-asyncio-fast numpy scipy
@@ -131,7 +131,7 @@ SUBSYSTEM=="tty", ATTRS{idVendor}=="1a86", ATTRS{serial}=="<BASE_SERIAL>", SYMLI
 And give the control loop scheduling priority — but **only** the loop, never the logger:
 
 ```bash
-sudo setcap cap_sys_nice+ep $(readlink -f ~/trolleybot/.venv/bin/python3)
+sudo setcap cap_sys_nice+ep $(readlink -f ~/falali/.venv/bin/python3)
 ```
 
 Then in the bridge, request `SCHED_FIFO` at a modest priority (see `pi/bridge.py`).
@@ -145,16 +145,16 @@ Then in the bridge, request `SCHED_FIFO` at a modest priority (see `pi/bridge.py
 ## 6. Run as a service
 
 ```bash
-sudo tee /etc/systemd/system/trolleybot.service >/dev/null <<'EOF'
+sudo tee /etc/systemd/system/falali.service >/dev/null <<'EOF'
 [Unit]
-Description=TrolleyBot Pi bridge
+Description=Falali Pi bridge
 After=multi-user.target
 
 [Service]
 Type=simple
 User=bryan
-WorkingDirectory=/home/bryan/trolleybot
-ExecStart=/home/bryan/trolleybot/.venv/bin/python -m pi.bridge
+WorkingDirectory=/home/bryan/falali
+ExecStart=/home/bryan/falali/.venv/bin/python -m pi.bridge
 Restart=on-failure
 RestartSec=2
 
@@ -163,8 +163,8 @@ WantedBy=multi-user.target
 EOF
 
 sudo systemctl daemon-reload
-sudo systemctl enable --now trolleybot
-journalctl -u trolleybot -f
+sudo systemctl enable --now falali
+journalctl -u falali -f
 ```
 
 Do **not** enable this until step 1 of the migration order (watchdog) is proven. An auto-restarting
@@ -179,7 +179,7 @@ Mount the repo on the Pi over SSHFS, or just `git pull` on the Pi and edit on th
 
 ```bash
 # From the Mac, watch the robot:
-ssh bryan@trolleybot.local 'journalctl -u trolleybot -f'
+ssh bryan@falali.local 'journalctl -u falali -f'
 ```
 
 ---

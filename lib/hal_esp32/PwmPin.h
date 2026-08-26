@@ -7,7 +7,7 @@
 
 #include <Arduino.h>
 
-namespace tb {
+namespace fal {
 
 class PwmPin {
 public:
@@ -46,4 +46,4 @@ private:
   uint8_t res_bits_ = 8;
 };
 
-} // namespace tb
+} // namespace fal

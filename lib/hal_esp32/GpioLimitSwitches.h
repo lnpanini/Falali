@@ -7,7 +7,7 @@
 
 #include "ILimitSwitches.h"
 
-namespace tb {
+namespace fal {
 
 class GpioLimitSwitches : public ILimitSwitches {
 public:
@@ -46,4 +46,4 @@ private:
   bool closed_state_ = false;
 };
 
-} // namespace tb
+} // namespace fal

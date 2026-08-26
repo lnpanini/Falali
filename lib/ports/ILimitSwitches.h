@@ -2,7 +2,7 @@
 // they never authorise clamping (that is the SafetyMonitor's job).
 #pragma once
 
-namespace tb {
+namespace fal {
 
 struct ILimitSwitches {
   virtual ~ILimitSwitches() = default;
@@ -14,4 +14,4 @@ struct ILimitSwitches {
   virtual bool clampClosed() const = 0;  // clamp fully closed
 };
 
-} // namespace tb
+} // namespace fal

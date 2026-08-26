@@ -14,7 +14,7 @@ Vendored into this repository from
 
 It was a git submodule until 2026-08-14. That was changed because a submodule is
 a poor fit for a handover: the fixes below live only in this working tree, so
-anyone cloning TrolleyBot would have got firmware that does not talk to the base,
+anyone cloning Falali would have got firmware that does not talk to the base,
 with nothing on screen to say why. Vendoring makes one clone give one working
 pair of boards.
 

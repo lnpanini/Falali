@@ -1,4 +1,4 @@
-# TrolleyBot — Indoor Autonomous AGV Design
+# Falali — Indoor Autonomous AGV Design
 
 **Date:** 2026-06-16
 **Status:** Approved design (brainstorm complete) → ready for implementation planning
@@ -6,7 +6,7 @@
 
 ## 1. Goal & Scope
 
-Build a **functional, indoor, payload-carrying autonomous guided vehicle** ("TrolleyBot") on a
+Build a **functional, indoor, payload-carrying autonomous guided vehicle** ("Falali") on a
 Jetson Orin Nano, using **full SLAM autonomy** with integrated **computer-vision + Lidar**
 navigation.
 
@@ -80,7 +80,7 @@ fuses wheel-encoder odometry with the BNO08x gyro to keep heading honest through
 ## 5. Roadmap (each phase = its own spec → plan → build)
 
 - **Phase 0 — Foundations** *(buildable now, no hardware):* repo + ROS 2 Jazzy workspace layout, dev environment, finalize/order BOM.
-- **Phase 1 — Robot model + simulation** *(now, no hardware):* URDF/xacro of TrolleyBot, Gazebo world, drive via teleop. **Develop the whole stack in sim while parts ship.**
+- **Phase 1 — Robot model + simulation** *(now, no hardware):* URDF/xacro of Falali, Gazebo world, drive via teleop. **Develop the whole stack in sim while parts ship.**
 - **Phase 2 — Base bringup** *(hardware):* micro-ROS firmware (motors + encoder odometry + BNO08x IMU), teleop the real robot, verify odometry.
 - **Phase 3 — Sensors live:** lidar (D500) + camera (Astra Pro) drivers, correct TF tree, verify in RViz.
 - **Phase 4 — SLAM:** `slam_toolbox` mapping; drive around; save a map.

@@ -5,7 +5,7 @@
 
 #include "types.h"
 
-namespace tb {
+namespace fal {
 
 struct IOdometry {
   virtual ~IOdometry() = default;
@@ -18,4 +18,4 @@ struct IOdometry {
   virtual void update(const DriveCommand& latest_cmd, uint32_t now_ms) = 0;
 };
 
-} // namespace tb
+} // namespace fal

@@ -2,7 +2,7 @@
 // directions; currentAmps() exposes the current sense used for stall detection.
 #pragma once
 
-namespace tb {
+namespace fal {
 
 struct IClamp {
   virtual ~IClamp() = default;
@@ -21,4 +21,4 @@ struct IClamp {
   virtual float currentAmps() const = 0;
 };
 
-} // namespace tb
+} // namespace fal

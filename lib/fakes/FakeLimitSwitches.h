@@ -3,7 +3,7 @@
 
 #include "ILimitSwitches.h"
 
-namespace tb {
+namespace fal {
 
 class FakeLimitSwitches : public ILimitSwitches {
 public:
@@ -22,4 +22,4 @@ private:
   int update_count_ = 0;
 };
 
-} // namespace tb
+} // namespace fal

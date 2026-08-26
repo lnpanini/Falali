@@ -12,7 +12,7 @@
 
 #include <stdint.h>
 
-namespace tb {
+namespace fal {
 
 struct StallConfig {
   // Below this command the motor is expected to be still, so zero RPM is normal
@@ -50,4 +50,4 @@ private:
   uint32_t grace_until_    = 0;
 };
 
-} // namespace tb
+} // namespace fal

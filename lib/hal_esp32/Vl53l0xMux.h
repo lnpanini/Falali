@@ -15,7 +15,7 @@
 #include "IAlignmentSensor.h"
 #include "pins.h"
 
-namespace tb {
+namespace fal {
 
 class Vl53l0xMux : public IAlignmentSensor {
 public:
@@ -66,4 +66,4 @@ private:
   VL53L0X sensors_[kMaxZones];
 };
 
-} // namespace tb
+} // namespace fal

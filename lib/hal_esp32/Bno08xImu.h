@@ -28,7 +28,7 @@
 
 #include "IImu.h"
 
-namespace tb {
+namespace fal {
 
 class Bno08xImu : public IImu {
  public:
@@ -92,4 +92,4 @@ class Bno08xImu : public IImu {
   bool valid_ = false;
 };
 
-}  // namespace tb
+}  // namespace fal

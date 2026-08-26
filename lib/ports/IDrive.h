@@ -4,7 +4,7 @@
 
 #include "types.h"
 
-namespace tb {
+namespace fal {
 
 struct IDrive {
   virtual ~IDrive() = default;
@@ -25,4 +25,4 @@ struct IDrive {
   virtual bool fault() const = 0;
 };
 
-} // namespace tb
+} // namespace fal

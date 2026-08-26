@@ -1,6 +1,6 @@
 #include "SafetyMonitor.h"
 
-namespace tb {
+namespace fal {
 
 void SafetyMonitor::update(bool alignment_confirmed, const FaultFlags& faults) {
   alignment_confirmed_ = alignment_confirmed;
@@ -18,4 +18,4 @@ bool SafetyMonitor::clampCloseAllowed() const {
          !faults_.wheel_overcurrent && !estop_latch_;
 }
 
-} // namespace tb
+} // namespace fal

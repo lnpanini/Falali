@@ -2,7 +2,7 @@
 // Maps to the driver's SV (speed), F/R (direction), EN, BRK and ALARM lines.
 #pragma once
 
-namespace tb {
+namespace fal {
 
 struct IMotor {
   virtual ~IMotor() = default;
@@ -20,4 +20,4 @@ struct IMotor {
   virtual bool fault() const = 0;
 };
 
-} // namespace tb
+} // namespace fal

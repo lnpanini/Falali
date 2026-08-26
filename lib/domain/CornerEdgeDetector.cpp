@@ -1,6 +1,6 @@
 #include "CornerEdgeDetector.h"
 
-namespace tb {
+namespace fal {
 
 void CornerEdgeDetector::reset() {
   for (size_t i = 0; i < kNumCorners; ++i) {
@@ -43,4 +43,4 @@ void CornerEdgeDetector::update(const AlignmentFrame& frame) {
   }
 }
 
-} // namespace tb
+} // namespace fal

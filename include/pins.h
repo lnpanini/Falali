@@ -25,7 +25,7 @@ namespace pins {
 constexpr uint8_t kNoPin = 0xFF;
 
 // --- Wheel motors: 4× BLD-120A ---
-// Index order matches tb::Corner — FL=0, FR=1, RL=2, RR=3.
+// Index order matches fal::Corner — FL=0, FR=1, RL=2, RR=3.
 //
 // NOTE: EN and BRK are PER-WHEEL on this board, not ganged as the original
 // design assumed. That is strictly better (independent shutdown per wheel) but

@@ -227,7 +227,7 @@ float and the motor state at power-up is undefined. This is what makes the
 power-up behaviour in `startup.md` §1 safe.
 
 **The transistor inverts every control line.** Firmware handles this with the
-single switch `tb::kControlViaMosfet` in `Bld120aMotor.h`, which derives all four
+single switch `fal::kControlViaMosfet` in `Bld120aMotor.h`, which derives all four
 polarity constants and is checked by `static_assert`. Do not invert a second time
 in application code.
 

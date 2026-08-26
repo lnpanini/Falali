@@ -62,7 +62,7 @@
 #include "SafetyMonitor.h"
 #include "Vl53l0xArray.h"
 
-using namespace tb;
+using namespace fal;
 
 // Adapter polarity. The NPN stage INVERTS: HIGH at the GPIO asserts the driver
 // input. The output latch resets LOW, so every line boots released and the
@@ -379,7 +379,7 @@ static void tofPoll() {
 // Reading only "present" cannot tell the first two apart, and they need
 // completely different fixes.
 static void tofPrint() {
-  const tb::CornerConfig cc = cfg::makeCornerConfig();
+  const fal::CornerConfig cc = cfg::makeCornerConfig();
   // Frame time is the number that governs centring accuracy, so it is printed
   // on every line rather than buried in a one-off benchmark. Edge detection
   // lags by frame x CornerConfig::debounce, and CenterX turns that lag into a

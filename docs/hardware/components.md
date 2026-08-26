@@ -411,7 +411,7 @@ block (J3).
 
 ## 8. If the robot is being broken up for parts
 
-The audience note for these docs mentions members scavenging TrolleyBot to feed
+The audience note for these docs mentions members scavenging Falali to feed
 other projects. This is a condition report, not a recommendation — what state
 each part is in, and what carries over with it.
 

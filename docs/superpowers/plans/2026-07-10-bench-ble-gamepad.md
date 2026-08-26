@@ -265,7 +265,7 @@ static void handleSerial(bool &alignStart, bool &alignAbort) {
 void setup() {
   Serial.begin(115200);
   delay(400);
-  if (Serial) Serial.println("\n# TrolleyBot bench (serial WASD + auto-align)");
+  if (Serial) Serial.println("\n# Falali bench (serial WASD + auto-align)");
   coreSetup();
 }
 
@@ -310,7 +310,7 @@ Prove the hardest external dependency — the ESP-IDF+Arduino+Bluepad32 toolchai
 Run:
 ```bash
 git clone --recursive https://github.com/ricardoquesada/esp-idf-arduino-bluepad32-template bench_ble
-rm -rf bench_ble/.git          # de-nest: make it part of the TrolleyBot repo
+rm -rf bench_ble/.git          # de-nest: make it part of the Falali repo
 ```
 
 - [ ] **Step 2: Record the setup in `bench_ble/SETUP.md`**

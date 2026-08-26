@@ -179,9 +179,9 @@ print what the driver ACTUALLY sees vs what was commanded.
 
 ## Provenance / prior facts pulled in
 
-- Memory `trolleybot-bld120a-driver`: real driver has NO FG/ALM; COM = signal
+- Memory `falali-bld120a-driver`: real driver has NO FG/ALM; COM = signal
   gnd; F/R high = fwd; EN low = enable; 12–30 V.
-- Memory `trolleybot-bench-ble-gamepad`: 12 V killed an ESP once → the ~7.5 V
+- Memory `falali-bench-ble-gamepad`: 12 V killed an ESP once → the ~7.5 V
   rail note is for the *L298N mecanum* rig, NOT this BLD-120A rig (this one is
   correctly on its own 24 V PSU with isolated grounds).
 - Bench log 2026-07-15: proportional ramp 0.78→2.59 V SV, F/R reversal, EN

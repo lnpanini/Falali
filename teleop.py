@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Live keyboard teleop for the TrolleyBot bench sketch (src/bench_check.cpp).
+"""Live keyboard teleop for the Falali bench sketch (src/bench_check.cpp).
 
 Replaces `pio device monitor`, which throws `tcsetattr: Invalid argument` on this
 host's CH343 driver. Sends single keypresses straight to the ESP32 and prints the

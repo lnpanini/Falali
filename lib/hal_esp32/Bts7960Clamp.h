@@ -11,7 +11,7 @@
 #include "PwmPin.h"
 #include "pins.h"
 
-namespace tb {
+namespace fal {
 
 class Bts7960Clamp : public IClamp {
 public:
@@ -83,4 +83,4 @@ private:
   PwmPin lpwm_pwm_;
 };
 
-} // namespace tb
+} // namespace fal

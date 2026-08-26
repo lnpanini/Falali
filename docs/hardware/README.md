@@ -1,10 +1,10 @@
-# TrolleyBot — hardware documentation
+# Falali — hardware documentation
 
 Handover documentation for **SOAR**. The firmware side is documented in
 `docs/gotchas.md` and `docs/hardware-architecture.md`; this folder is the
 hardware.
 
-TrolleyBot is an ESP32-S3 under-ride docking AGV: a mecanum base that crabs
+Falali is an ESP32-S3 under-ride docking AGV: a mecanum base that crabs
 sideways under an 860 × 1260 mm trolley, aligns on four corner ToF sensors, and
 hands off to an arm subsystem that clamps it.
 

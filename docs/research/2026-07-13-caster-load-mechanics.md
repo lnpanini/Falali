@@ -1,7 +1,7 @@
 # Moving a 4-Swivel-Caster Trolley: Mechanics & Best Practice
 
 **Research report — 2026-07-13**
-**Context:** TrolleyBot is a small ESP32-S3 under-ride AMR (4-wheel mecanum, bench rig on L298N, ~300 mm/s class) that drives beneath a textile trolley on **four swivel casters**, clamps its underside, and moves it. Target load: **up to 200 kg**, indoor flat floor. This report answers "what is the best way to move it" from both a **physics** and a **control-strategy** angle.
+**Context:** Falali is a small ESP32-S3 under-ride AMR (4-wheel mecanum, bench rig on L298N, ~300 mm/s class) that drives beneath a textile trolley on **four swivel casters**, clamps its underside, and moves it. Target load: **up to 200 kg**, indoor flat floor. This report answers "what is the best way to move it" from both a **physics** and a **control-strategy** angle.
 
 **How to read the confidence tags.** Every quantitative claim below is tagged:
 - **[V]** — verified by 3-vote adversarial check against the primary source (survived refutation).
@@ -105,7 +105,7 @@ So **transfer ~20–30 % of trolley weight (≈40–60 kg)** as the practical mi
 
 ### B1. Push vs pull vs rigid centered under-ride
 
-The classic "**towing is passively stable, pushing jackknifes**" rule **applies only to articulated (hitch/pivot) couplings**, where the extra joint DOF amplifies angular error. **TrolleyBot's rigid clamp removes that joint** — robot + trolley become a single 3-DOF rigid body, so geometric jackknifing is mathematically eliminated. **[E, both Gemini analyses agree]** A pivoted push or pull of an all-swivel trolley, by contrast, is unstable/drifts badly because the casters supply no lateral constraint (it behaves "like a sliding block on ice").
+The classic "**towing is passively stable, pushing jackknifes**" rule **applies only to articulated (hitch/pivot) couplings**, where the extra joint DOF amplifies angular error. **Falali's rigid clamp removes that joint** — robot + trolley become a single 3-DOF rigid body, so geometric jackknifing is mathematically eliminated. **[E, both Gemini analyses agree]** A pivoted push or pull of an all-swivel trolley, by contrast, is unstable/drifts badly because the casters supply no lateral constraint (it behaves "like a sliding block on ice").
 
 **Centered under-ride is the best mount point:** it puts the robot directly under the load's mass, maximising the normal force (and weight-transfer leverage) on the drive wheels, and makes caster loads symmetric about the drive centre. An end-mounted (front/rear) clamp leaves the robot's wheels lightly loaded → slip. **[E]** Industry echo: MasterMover's MasterHandler slides a **stabilising leg beneath the load to create a single rigid control point** specifically to kill swivel-caster drift [S].
 
@@ -130,7 +130,7 @@ Before a long straight move from rest, **jog backward ~2× the caster trail (≈
 
 ---
 
-## Part C — Implications for TrolleyBot
+## Part C — Implications for Falali
 
 **Headline for the hardware team (the `IClamp` subsystem, teammate-owned):**
 The clamp is not just a horizontal grip — **it must establish a vertical load path that transfers trolley weight onto the robot's wheels.** Two viable options, in order of robustness:

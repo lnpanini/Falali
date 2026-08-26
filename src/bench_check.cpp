@@ -364,7 +364,7 @@ void setup() {
   Serial.begin(115200);
   delay(400);
   Serial.println(
-      "\n# TrolleyBot bench + auto edge-align (2 ToF, 4 mecanum/L298N)");
+      "\n# Falali bench + auto edge-align (2 ToF, 4 mecanum/L298N)");
 
   for (uint8_t i = 0; i < 4; ++i) {
     pinMode(MOTOR[i].in1, OUTPUT);

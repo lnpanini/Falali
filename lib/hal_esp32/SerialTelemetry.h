@@ -4,7 +4,7 @@
 
 #include "ITelemetry.h"
 
-namespace tb {
+namespace fal {
 
 class SerialTelemetry : public ITelemetry {
 public:
@@ -21,4 +21,4 @@ public:
   Command poll() override;
 };
 
-} // namespace tb
+} // namespace fal

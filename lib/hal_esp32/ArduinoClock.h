@@ -5,11 +5,11 @@
 
 #include "IClock.h"
 
-namespace tb {
+namespace fal {
 
 class ArduinoClock : public IClock {
 public:
   uint32_t millis() const override { return ::millis(); }
 };
 
-} // namespace tb
+} // namespace fal

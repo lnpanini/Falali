@@ -33,7 +33,7 @@
 
 #include <stdint.h>
 
-namespace tb {
+namespace fal {
 
 struct LinkConfig {
   // No valid frame for this long -> the link is considered lost.
@@ -87,4 +87,4 @@ private:
   uint32_t last_feed_ = 0;
 };
 
-} // namespace tb
+} // namespace fal

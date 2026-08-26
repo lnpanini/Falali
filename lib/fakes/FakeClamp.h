@@ -4,7 +4,7 @@
 #include "IClamp.h"
 #include "types.h"
 
-namespace tb {
+namespace fal {
 
 class FakeClamp : public IClamp {
 public:
@@ -36,4 +36,4 @@ private:
   float current_ = 0.0f;
 };
 
-} // namespace tb
+} // namespace fal

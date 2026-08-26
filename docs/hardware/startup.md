@@ -1,4 +1,4 @@
-# Powering up TrolleyBot
+# Powering up Falali
 
 **Read this before you connect the battery.** It is the only document that
 describes the power system, because none of it is visible in the KiCad files —

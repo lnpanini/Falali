@@ -6,7 +6,7 @@
 
 #include "IAlignmentSensor.h"
 
-namespace tb {
+namespace fal {
 
 class FakeAlignmentSensor : public IAlignmentSensor {
 public:
@@ -32,4 +32,4 @@ private:
   AlignmentFrame last_{};
 };
 
-} // namespace tb
+} // namespace fal

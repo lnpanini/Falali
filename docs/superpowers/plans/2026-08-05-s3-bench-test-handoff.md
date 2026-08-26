@@ -96,7 +96,7 @@ GPIO ──10 kΩ──┬── Base          Collector → driver input
 ```
 
 **The transistor inverts.** GPIO HIGH = transistor on = driver input pulled to
-COM = **asserted**. Firmware handles this via `tb::kControlViaMosfet = true` in
+COM = **asserted**. Firmware handles this via `fal::kControlViaMosfet = true` in
 `lib/hal_esp32/Bld120aMotor.h`; `bench_s3_motor.cpp` has the same constants inline.
 
 ---
@@ -158,7 +158,7 @@ Reconnect, 24 V on, `e` to enable, duty 0. Meter each terminal against COM:
 ### Step 3 — break-away sweep
 
 ```bash
-cd ~/Documents/GitHub/TrolleyBot
+cd ~/Documents/GitHub/Falali
 /opt/anaconda3/bin/python teleop.py --log
 ```
 

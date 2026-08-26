@@ -26,7 +26,7 @@
 
 #include "ICurrentSense.h"
 
-namespace tb {
+namespace fal {
 
 class Ads1115CurrentSense : public ICurrentSense {
  public:
@@ -86,4 +86,4 @@ class Ads1115CurrentSense : public ICurrentSense {
   bool valid_ = false;
 };
 
-}  // namespace tb
+}  // namespace fal

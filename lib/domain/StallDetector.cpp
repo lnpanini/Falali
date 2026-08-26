@@ -1,6 +1,6 @@
 #include "StallDetector.h"
 
-namespace tb {
+namespace fal {
 
 static inline float absf(float v) { return v < 0.0f ? -v : v; }
 
@@ -39,4 +39,4 @@ bool StallDetector::update(uint32_t now_ms, int cmd, float rpm) {
   return false;
 }
 
-} // namespace tb
+} // namespace fal

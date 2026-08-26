@@ -3,7 +3,7 @@
 
 #include "CornerEdgeDetector.h"
 
-using namespace tb;
+using namespace fal;
 
 namespace {
 AlignmentFrame frame4(uint16_t fl, uint16_t fr, uint16_t rl, uint16_t rr, bool valid = true) {

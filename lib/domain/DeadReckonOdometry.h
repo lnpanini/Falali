@@ -8,7 +8,7 @@
 
 #include "IOdometry.h"
 
-namespace tb {
+namespace fal {
 
 struct OdometryCal {
   float max_lin_mm_s = 300.0f;  // platform speed at |vx|=|vy|=1
@@ -35,4 +35,4 @@ private:
   bool have_last_ = false;
 };
 
-} // namespace tb
+} // namespace fal

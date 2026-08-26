@@ -5,7 +5,7 @@
 
 #include "types.h"
 
-namespace tb {
+namespace fal {
 
 struct ITelemetry {
   virtual ~ITelemetry() = default;
@@ -24,4 +24,4 @@ struct ITelemetry {
   virtual Command poll() = 0;
 };
 
-} // namespace tb
+} // namespace fal

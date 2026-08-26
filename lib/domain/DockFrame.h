@@ -29,7 +29,7 @@
 
 #include "types.h"
 
-namespace tb {
+namespace fal {
 
 // Sensor index the docking frame's slot i should read from, for a robot that
 // approaches by strafing RIGHT.
@@ -76,4 +76,4 @@ inline DriveCommand toRobotFrame(const DriveCommand& c, bool strafe_right = true
   return r;
 }
 
-}  // namespace tb
+}  // namespace fal

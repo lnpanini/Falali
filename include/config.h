@@ -61,8 +61,8 @@ constexpr int16_t kTofOffsetMm[4] = {0, -46, -25, -23};
 
 // Corner edge detection: the solid board sits within this height band above the
 // up-facing sensors. Tune on the bench.
-inline tb::CornerConfig makeCornerConfig() {
-  tb::CornerConfig c;
+inline fal::CornerConfig makeCornerConfig() {
+  fal::CornerConfig c;
 
   // BANDS SIZED FROM MEASUREMENT, NOT FROM CAUTION. The old 20-400 window was
   // picked before the gap was known, and is wide enough to accept things that
@@ -159,8 +159,8 @@ constexpr float kEdgeOverreachMm = 28.1f;                       // per edge
 constexpr float kExpectedSpanMm = kTrolleyDepthMm + 2.0f * kEdgeOverreachMm;  // ~916
 
 // Dead-reckoning calibration: platform speed / yaw rate at full command.
-inline tb::OdometryCal makeOdometryCal() {
-  tb::OdometryCal c;
+inline fal::OdometryCal makeOdometryCal() {
+  fal::OdometryCal c;
   // WAS 300, WHICH WAS A GUESS AND WRONG BY ~4.6x.
   //
   // Two independent measurements, and they disagree by 20%:
@@ -202,8 +202,8 @@ inline tb::OdometryCal makeOdometryCal() {
 }
 
 // Docking sequence tuning.
-inline tb::DockingConfig makeDockConfig() {
-  tb::DockingConfig c;
+inline fal::DockingConfig makeDockConfig() {
+  fal::DockingConfig c;
 
   // *** front_offset_mm IS NEGATIVE, AND THAT IS NOT A TYPO. ***
   //
@@ -327,8 +327,8 @@ inline tb::DockingConfig makeDockConfig() {
 // Pi 5 control-link watchdog. 100 ms == 5 missed control ticks: long enough to
 // ride out ordinary Linux scheduling jitter, short enough that the platform
 // travels only ~30 mm at full speed before the brakes go on.
-inline tb::LinkConfig makeLinkConfig() {
-  tb::LinkConfig c;
+inline fal::LinkConfig makeLinkConfig() {
+  fal::LinkConfig c;
   c.timeout_ms = 100;
   return c;
 }

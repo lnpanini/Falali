@@ -102,7 +102,7 @@ void setup() {
   Wire.begin(PIN_SDA, PIN_SCL);
   Wire.setClock(100000);  // 100 kHz — more tolerant of breadboard/jumper wiring
 
-  Serial.println("\n# TrolleyBot ToF bring-up test (v2 diagnostic)");
+  Serial.println("\n# Falali ToF bring-up test (v2 diagnostic)");
   Serial.printf("# SDA=GPIO%u  SCL=GPIO%u  I2C=100kHz\n", PIN_SDA, PIN_SCL);
   i2cScan();
 

@@ -3,7 +3,7 @@
 
 #include "IDrive.h"
 
-namespace tb {
+namespace fal {
 
 class FakeDrive : public IDrive {
 public:
@@ -37,4 +37,4 @@ private:
   bool fault_ = false;
 };
 
-} // namespace tb
+} // namespace fal

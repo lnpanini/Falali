@@ -7,7 +7,7 @@
 
 #include "types.h"
 
-namespace tb {
+namespace fal {
 
 class SafetyMonitor {
 public:
@@ -30,4 +30,4 @@ private:
   bool estop_latch_ = false;
 };
 
-} // namespace tb
+} // namespace fal

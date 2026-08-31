@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1123" height="794" viewBox="0 0 1123 794">
+<defs>
+ <marker id="a" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0 0L9 3L0 6Z" fill="#334155"/></marker>
+ <marker id="b" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><path d="M0 0L9 3L0 6Z" fill="#2563eb"/></marker>
+ <style>.t{font:700 27px Arial;fill:#0f172a}.s{font:14px Arial;fill:#475569}.h{font:700 15px Arial;fill:#0f172a}.p{font:13px Arial;fill:#334155}.sm{font:11px Arial;fill:#475569}.mine{stroke:#2563eb;stroke-width:3;rx:12}.team{stroke:#334155;stroke-width:2;rx:12}.l{stroke:#334155;stroke-width:2.2;fill:none;marker-end:url(#a)}.fb{stroke:#2563eb;stroke-width:2.5;fill:none;stroke-dasharray:8 5;marker-end:url(#b)}</style>
+</defs>
+<rect width="1123" height="794" fill="#f8fafc"/>
+<text x="52" y="48" class="t">HMW05 — Arm Subsystem Detailed Function Diagram</text>
+<text x="52" y="73" class="s">Electrical, sensing, control and actuation functions • Blue = my contribution</text>
+
+<!-- controller -->
+<rect x="408" y="103" width="307" height="112" class="mine" fill="#dbeafe"/>
+<text x="561" y="135" text-anchor="middle" class="h">ESP32-S3 + custom arm PCB</text>
+<text x="561" y="159" text-anchor="middle" class="p">Power and signal distribution</text><text x="561" y="180" text-anchor="middle" class="p">Arduino / PlatformIO control software</text><text x="561" y="200" text-anchor="middle" class="sm">I²C • GPIO • PWM • serial test commands</text>
+
+<!-- inputs -->
+<rect x="65" y="275" width="240" height="118" class="mine" fill="#eff6ff"/><text x="185" y="308" text-anchor="middle" class="h">Distance feedback</text><text x="185" y="333" text-anchor="middle" class="p">2 × VL53L0X ToF sensors</text><text x="185" y="355" text-anchor="middle" class="p">measure trolley boundary</text><text x="185" y="377" text-anchor="middle" class="sm">unique I²C addresses via XSHUT</text>
+<rect x="65" y="480" width="240" height="118" class="mine" fill="#eff6ff"/><text x="185" y="513" text-anchor="middle" class="h">Home-position feedback</text><text x="185" y="538" text-anchor="middle" class="p">2 × limit switches</text><text x="185" y="560" text-anchor="middle" class="p">indicate arm fully retracted</text><text x="185" y="582" text-anchor="middle" class="sm">INPUT_PULLUP safety inputs</text>
+
+<!-- outputs -->
+<rect x="818" y="275" width="240" height="118" class="mine" fill="#eff6ff"/><text x="938" y="308" text-anchor="middle" class="h">Motor actuation</text><text x="938" y="333" text-anchor="middle" class="p">BTS7960 H-bridge driver</text><text x="938" y="355" text-anchor="middle" class="p">PWM extend / retract control</text><text x="938" y="377" text-anchor="middle" class="sm">shared DC motor output</text>
+<rect x="818" y="480" width="240" height="118" class="mine" fill="#eff6ff"/><text x="938" y="513" text-anchor="middle" class="h">Trolley engagement</text><text x="938" y="538" text-anchor="middle" class="p">2 × servo flippers</text><text x="938" y="560" text-anchor="middle" class="p">State A → State B → State A</text><text x="938" y="582" text-anchor="middle" class="sm">guide / lock the trolley</text>
+
+<!-- central process -->
+<rect x="408" y="330" width="307" height="198" class="mine" fill="#dbeafe"/>
+<text x="561" y="360" text-anchor="middle" class="h">Non-blocking arm state machine</text>
+<text x="438" y="390" class="p">1. HOMING — park servos in State A</text><text x="438" y="417" class="p">2. EXTENDING — motor runs</text><text x="438" y="444" class="p">3. PRE_FLIP — confirm both sensors see air</text><text x="438" y="471" class="p">4. FLIPPING — move both servos to State B</text><text x="438" y="498" class="p">5. RETRACTING — reverse motor</text><text x="438" y="518" class="sm">6. STOPPED — either limit switch stops cycle</text>
+
+<!-- physical output -->
+<rect x="408" y="615" width="307" height="75" class="team" fill="#dcfce7"/><text x="561" y="645" text-anchor="middle" class="h">Shared mechanical arm</text><text x="561" y="668" text-anchor="middle" class="p">Common thread / linkage moves both arms</text>
+
+<!-- arrows -->
+<path d="M305 334H408" class="fb"/><path d="M305 539H370V450H408" class="fb"/><path d="M715 375H818" class="l"/><path d="M715 502H818" class="l"/><path d="M938 393V480" class="l"/><path d="M938 393V615H715" class="l"/><path d="M561 528V615" class="l"/><path d="M561 215V330" class="l"/>
+<!-- note -->
+<rect x="52" y="705" width="1015" height="48" rx="10" fill="#fff" stroke="#cbd5e1"/><text x="70" y="735" class="p"><tspan font-weight="700">My contribution:</tspan> PCB design, arm electronics-circuit prototyping, and Arduino/PlatformIO code implementing sensing, state transitions, motor/servo control and safety stops.</text>
+</svg>

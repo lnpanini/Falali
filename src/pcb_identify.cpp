@@ -1,19 +1,24 @@
 // Physical identification for the assembled base.
 //
 // Answers the question a schematic cannot: which motor output actually drives
-// which wheel, which mux channel holds that wheel's encoder, and which ADS1115
-// channel carries its current sensor.
+// which wheel, and which ADS1115 channel carries its current sensor.
 //
 // It DISCOVERS the mapping rather than assuming it. Drive one motor, see which
-// encoder turns and which current channel rises -- that triple is one corner,
-// whatever the harness happens to be doing. The FL/FR/RL/RR labels in pins.h are
-// the netlist's opinion of the board; this is the robot's.
+// current channel rises -- that pair is one corner, whatever the harness happens
+// to be doing. The FL/FR/RL/RR labels in pins.h are the netlist's opinion of the
+// board; this is the robot's.
+//
+// The encoder half was removed 2026-08-31 with the AS5600s and the I2C mux.
+//
+// *** THE CURRENT HALF ONLY WORKS ONCE THE ACS758 OUTPUTS ARE WIRED. ***
+// They sit inline on the motor-supply negative but their VIOUT pins are not
+// connected to J9/J12/J14/J17, so every column reads noise until they are.
 //
 // PINS COME FROM include/pins.h. Nothing is hand-typed.
 //
 // COMMANDS
-//   s  I2C inventory      -- mux, encoders per channel, IMU, ADS1115
-//   m  motor mapping      -- spins each wheel briefly, reports enc + mean current
+//   s  I2C inventory      -- IMU, ADS1115
+//   m  motor mapping      -- spins each wheel briefly, reports mean current
 //   t  ToF identify       -- streams all four ranges; cover one at a time
 //   x  stop everything
 //
@@ -41,10 +46,6 @@ static constexpr uint32_t PWM_MAX  = (1u << PWM_BITS) - 1;
 static constexpr uint8_t SPIN_DUTY_PCT = 25;   // 10% left the current signal in the noise
 static constexpr uint32_t SPIN_MS      = 1500;
 
-static constexpr uint8_t AS5600_ADDR   = 0x36;
-static constexpr uint8_t AS5600_RAWANG = 0x0C;   // 12-bit, wraps 0..4095
-static constexpr uint8_t AS5600_STATUS = 0x0B;
-static constexpr uint8_t AS5600_AGC    = 0x1A;
 static constexpr uint8_t ADS1115_ADDR  = 0x48;
 static constexpr uint8_t BNO08X_ADDR   = 0x4B;  // ADR strapped HIGH on this breakout (confirmed 2026-08-11)
 
@@ -60,27 +61,6 @@ static bool ping(uint8_t addr) {
   return Wire.endTransmission() == 0;
 }
 
-static bool muxSelect(uint8_t ch) {
-  Wire.beginTransmission(pins::kMuxAddr);
-  Wire.write(static_cast<uint8_t>(1u << ch));
-  return Wire.endTransmission() == 0;
-}
-
-static void muxDisable() {
-  Wire.beginTransmission(pins::kMuxAddr);
-  Wire.write(static_cast<uint8_t>(0));
-  Wire.endTransmission();
-}
-
-static bool readReg8(uint8_t addr, uint8_t reg, uint8_t& out) {
-  Wire.beginTransmission(addr);
-  Wire.write(reg);
-  if (Wire.endTransmission(false) != 0) return false;
-  if (Wire.requestFrom(addr, static_cast<uint8_t>(1)) != 1) return false;
-  out = Wire.read();
-  return true;
-}
-
 static bool readReg16(uint8_t addr, uint8_t reg, uint16_t& out) {
   Wire.beginTransmission(addr);
   Wire.write(reg);
@@ -89,26 +69,6 @@ static bool readReg16(uint8_t addr, uint8_t reg, uint16_t& out) {
   out = static_cast<uint16_t>(Wire.read()) << 8;
   out |= Wire.read();
   return true;
-}
-
-// ------------------------------------------------------------------ encoders
-
-// Raw angle on mux channel `ch`, or -1 if it did not answer.
-static int readAngle(uint8_t ch) {
-  if (!muxSelect(ch)) return -1;
-  uint16_t raw = 0;
-  if (!readReg16(AS5600_ADDR, AS5600_RAWANG, raw)) return -1;
-  return static_cast<int>(raw & 0x0FFF);
-}
-
-// Shortest signed distance between two 12-bit angles. Without this a wheel
-// crossing the 4095->0 boundary reports a 4000-count jump in the wrong
-// direction, which would invert the sign the corner mapping depends on.
-static int angleDelta(int from, int to) {
-  int d = to - from;
-  if (d >  2048) d -= 4096;
-  if (d < -2048) d += 4096;
-  return d;
 }
 
 // --------------------------------------------------------------- ADS1115
@@ -172,8 +132,6 @@ static void motorRun(int i, uint8_t duty_pct, bool reverse) {
 
 static void inventory() {
   Serial.println(F("\n--- I2C INVENTORY ---"));
-  const bool mux = ping(pins::kMuxAddr);
-  Serial.printf("  mux    0x%02X : %s\n", pins::kMuxAddr, mux ? "present" : "MISSING");
   Serial.printf("  BNO08x 0x%02X : %s\n", BNO08X_ADDR, ping(BNO08X_ADDR) ? "present" : "MISSING");
 
   // 0x48-0x4B is shared territory: ADS1115 straps across all four, BNO08x sits
@@ -195,43 +153,19 @@ static void inventory() {
   else if (n_resp == 2) Serial.println(F("    two responders, one of each part -- CORRECT, no conflict"));
   else                  Serial.println(F("    more responders than parts fitted -- investigate"));
 
-  if (!mux) { Serial.println(F("  (no mux -> cannot see encoders)")); return; }
-  Serial.println(F("\n  encoders, by mux channel:"));
-  for (uint8_t ch = 0; ch < 4; ++ch) {
-    if (!muxSelect(ch)) { Serial.printf("    ch%u : mux select failed\n", ch); continue; }
-    if (!ping(AS5600_ADDR)) { Serial.printf("    ch%u : no AS5600\n", ch); continue; }
-    uint8_t st = 0, agc = 0;
-    readReg8(AS5600_ADDR, AS5600_STATUS, st);
-    readReg8(AS5600_ADDR, AS5600_AGC, agc);
-    const bool md = st & 0x20, ml = st & 0x10, mh = st & 0x08;
-    Serial.printf("    ch%u : AS5600 angle=%4d agc=%3u  %s\n", ch, readAngle(ch), agc,
-                  !md ? "NO MAGNET" : ml ? "magnet too WEAK (move closer)"
-                                  : mh ? "magnet too STRONG (move away)" : "magnet ok");
-  }
-  muxDisable();
 }
 
-// The heart of it: spin one motor, watch every encoder and every current
-// channel. Whichever encoder moves is that motor's wheel.
+// The heart of it: spin one motor, watch every current channel. Whichever
+// channel rises is that motor's corner.
 static void mapMotors() {
   Serial.println(F("\n--- MOTOR MAPPING --- WHEELS OFF THE GROUND. Any key aborts.\n"));
+  Serial.println(F("NOTE: reads the ACS758 current sensors. If their VIOUT pins are not\n"
+                   "      wired to J9/J12/J14/J17 every column below is noise.\n"));
 
-  // Probe the mux ONCE. Without it every readAngle() NACKs, and the I2C driver
-  // prints four lines of error per failure -- roughly 400 lines that bury the
-  // current columns, which are the part that still works. A missing subsystem
-  // should be reported once, not screamed on every access.
-  const bool have_enc = ping(pins::kMuxAddr);
-  if (!have_enc)
-    Serial.println(F("NOTE: no mux at 0x70 -- encoder columns will read 0.\n"
-                     "      Current pairing below is still valid.\n"));
-
-  Serial.println(F("motor | encoder deltas (ch0..ch3)      | current mV (A0..A3)"));
-  Serial.println(F("------+-------------------------------+---------------------"));
+  Serial.println(F("motor | current mV (A0..A3)"));
+  Serial.println(F("------+---------------------"));
 
   for (int m = 0; m < 4; ++m) {
-    int before[4] = {-1, -1, -1, -1};
-    if (have_enc) for (uint8_t ch = 0; ch < 4; ++ch) before[ch] = readAngle(ch);
-
     // Baseline is an AVERAGE, not one sample. At 25% duty off the ground a motor
     // pulls only a few hundred mA, which at 26.4 mV/A is single-digit millivolts
     // against an ACS758 noise floor of ~4.6 mV. A single baseline sample carries
@@ -259,27 +193,22 @@ static void mapMotors() {
     }
     long mean[4];
     for (uint8_t c = 0; c < 4; ++c) mean[c] = n[c] ? acc[c] / n[c] : 0;
-    int after[4] = {-1, -1, -1, -1};
-    if (have_enc) for (uint8_t ch = 0; ch < 4; ++ch) after[ch] = readAngle(ch);
     motorStop(m);
 
     Serial.printf(" SV%-2u  |", pins::kWheelSV[m]);
-    int best = -1, best_abs = 0;
-    for (uint8_t ch = 0; ch < 4; ++ch) {
-      const int d = (before[ch] < 0 || after[ch] < 0) ? 0 : angleDelta(before[ch], after[ch]);
-      if (abs(d) > best_abs) { best_abs = abs(d); best = ch; }
-      Serial.printf(" %+6d", d);
+    long best_mv = 0; int best_c = -1;
+    for (uint8_t c = 0; c < 4; ++c) {
+      const long d = mean[c] - idle[c];
+      if (d > best_mv) { best_mv = d; best_c = c; }
+      Serial.printf(" %5ld", d);
     }
-    Serial.print(F("  |"));
-    for (uint8_t c = 0; c < 4; ++c) Serial.printf(" %5ld", mean[c] - idle[c]);
-    if (!have_enc)                       Serial.print(F("   <- current only (no mux)"));
-    else if (best >= 0 && best_abs > 20) Serial.printf("   <- encoder ch%d", best);
-    else                                 Serial.print(F("   <- NO ENCODER MOVED"));
+    if (best_c >= 0 && best_mv > 5) Serial.printf("   <- current A%d", best_c);
+    else                           Serial.print(F("   <- NO CURRENT RISE"));
     Serial.println();
     delay(800);
   }
   stopAll();
-  Serial.println(F("\nEach row is one corner: motor SV pin, its encoder channel, its current channel."));
+  Serial.println(F("\nEach row is one corner: motor SV pin and its current channel."));
 }
 
 // All four VL53L0X boot at 0x29, so they can only be separated by holding every
@@ -344,56 +273,6 @@ static void tofIdentify() {
   Serial.println(F("  stopped"));
 }
 
-// Exhaustive hunt for the encoders: every address on every one of the eight mux
-// channels, not just 0x36 on 0..3.
-//
-// Devices on the TRUNK stay visible with a channel open -- they sit upstream of
-// the switch -- so a naive per-channel scan reports the ADS1115 and the IMU
-// eight times and buries anything real. Baseline the trunk first with all
-// channels closed, then report only what is NEW on each channel. What prints is
-// then, by construction, actually behind that channel.
-static void huntEncoders() {
-  Serial.println(F("\n--- ENCODER HUNT: all 8 channels, all addresses ---"));
-  if (!ping(pins::kMuxAddr)) {
-    Serial.println(F("  no mux at 0x70 -- nothing to sweep"));
-    return;
-  }
-
-  muxDisable();
-  bool trunk[0x78] = {false};
-  Serial.print(F("  trunk (channels closed):"));
-  for (uint8_t a = 0x08; a <= 0x77; ++a) {
-    if (ping(a)) { trunk[a] = true; Serial.printf(" 0x%02X", a); }
-  }
-  Serial.println();
-
-  int total = 0;
-  for (uint8_t ch = 0; ch < 8; ++ch) {
-    if (!muxSelect(ch)) { Serial.printf("  ch%u : SELECT FAILED\n", ch); continue; }
-    int found = 0;
-    for (uint8_t a = 0x08; a <= 0x77; ++a) {
-      if (trunk[a] || a == pins::kMuxAddr) continue;   // upstream, not behind this channel
-      if (!ping(a)) continue;
-      if (!found) Serial.printf("  ch%u :", ch);
-      Serial.printf(" 0x%02X%s", a, a == AS5600_ADDR ? " (AS5600)" : "");
-      ++found;
-    }
-    if (found) { Serial.println(); total += found; }
-  }
-  muxDisable();
-
-  if (total == 0) {
-    Serial.println(F("  NOTHING behind any channel. The mux answers, so the trunk and the"));
-    Serial.println(F("  channel select both work -- the fault is downstream of the switch:"));
-    Serial.println(F("    1. 3V3 actually present at each AS5600 module?"));
-    Serial.println(F("    2. SDA/SCL swapped between mux SDn/SCn and the encoder?"));
-    Serial.println(F("    3. pull-ups on the branch? the switch does not provide them"));
-    Serial.println(F("    4. connector reversed (VCC<->GND)? that also runs hot"));
-  } else {
-    Serial.printf("  %d device(s) found behind channels\n", total);
-  }
-}
-
 static void help() {
   Serial.println(F(
       "\n  s  I2C inventory (safe, no motion)\n"
@@ -416,8 +295,7 @@ void setup() {
   Wire.begin(pins::kI2C_SDA, pins::kI2C_SCL, 400000);
 
   Serial.println(F("\n\n========== BASE IDENTIFICATION =========="));
-  Serial.printf("SDA=GPIO%u SCL=GPIO%u  mux 0x%02X\n",
-                pins::kI2C_SDA, pins::kI2C_SCL, pins::kMuxAddr);
+  Serial.printf("SDA=GPIO%u SCL=GPIO%u\n", pins::kI2C_SDA, pins::kI2C_SCL);
   inventory();
   help();
 }
@@ -427,7 +305,6 @@ void loop() {
   switch (Serial.read()) {
     case 's': inventory(); break;
     case 'm': mapMotors(); break;
-    case 'e': huntEncoders(); break;
     case 't': tofIdentify(); break;
     case 'x': stopAll(); Serial.println(F("stopped")); break;
     case '?': help(); break;

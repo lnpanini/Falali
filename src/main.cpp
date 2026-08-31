@@ -80,8 +80,9 @@ Bts7960Clamp g_clamp(pins::kClampRPWM, pins::kClampRPWMCh, pins::kClampLPWM, pin
 GpioLimitSwitches g_limits(pins::kLimitOpen, pins::kLimitClosed);
 // ToF: XSHUT re-addressing, NOT the mux.
 //
-// This was Vl53l0xMux on cfg::kMuxChannels = {0,1,2,3}. Two things were wrong
-// with that on the fabricated board. The netlist wires the four VL53L0X for
+// An earlier revision used a TCA9548A mux backend on channels {0,1,2,3}; both
+// the backend and the mux hardware were retired 2026-08-31. Two things were
+// wrong with that arrangement on the fabricated board. The netlist wires the four VL53L0X for
 // XSHUT sequencing on GPIO4-7 (pins::kTofXSHUT) with no mux involvement at all;
 // and channels 0-3 of the mux are the AS5600 ENCODERS, so the ToF reads were
 // aimed at the encoder branches.

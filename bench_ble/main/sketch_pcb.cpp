@@ -1,10 +1,10 @@
 // Bluepad32 gamepad drive for the FABRICATED Wheel Drive PCB.
 //
-// WHY THIS EXISTS RATHER THAN REUSING sketch_bld.cpp
-// --------------------------------------------------
-// sketch_bld.cpp drives through bench_bld_drive.h, whose pin table was measured
-// on the BREADBOARD. On the fabricated board two corners have their roles
-// exactly swapped:
+// WHY THE BREADBOARD PIN TABLE IS NOT REUSED
+// ------------------------------------------
+// The breadboard sketch (sketch_bld.cpp, removed 2026-08-31) drove through
+// bench_bld_drive.h, whose pin table was measured on the BREADBOARD. On the
+// fabricated board two corners have their roles exactly swapped:
 //
 //     GPIO21   bench: FR brake        pins.h: FR speed PWM
 //     GPIO38   bench: FR speed PWM    pins.h: FR brake

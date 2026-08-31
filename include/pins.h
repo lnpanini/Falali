@@ -137,21 +137,21 @@ constexpr uint8_t kI2C_SCL = 9;
 //
 // On the board itself, read the A0..A3 silkscreen next to the connector -- every
 // pin on this PCB is functionally labelled. Do not infer a channel from a
-// J-number, and note that pcb_identify.cpp can no longer confirm a corner on its
-// own: it identifies one by watching an encoder AND a current channel move
-// together, and the encoder half died with the encoders (see below).
+// J-number. Note pcb_identify.cpp can no longer confirm a corner on its own: it
+// used to watch an encoder AND a current channel move together, the encoder half
+// was deleted with the encoders, and the ACS758 outputs are not wired either --
+// so both halves of that check are currently unavailable.
 //
 // kAdsAddr is fixed in copper, not by a jumper: J8 pin 5 is the module's ADDR
 // pin and the board ties it to ground. [VERIFIED -- netlist]
 constexpr uint8_t kAdsAddr = 0x48;
 constexpr uint8_t kCurrentAdsChannel[4] = {0, 1, 2, 3};  // FL, FR, RL, RR
 
-// TCA9548A mux, still scanned by src/pcb_identify.cpp during bring-up. It was
-// fitted for the encoders (all four AS5600 are hard-wired to 0x36 with no
-// address pin, and this board commons their SDA/SCL, so they could not be
-// addressed individually as built). The encoders are gone — see below — but the
-// address stays because the bring-up tool reports whether the mux is present.
-constexpr uint8_t kMuxAddr = 0x70;
+// A TCA9548A mux at 0x70 was fitted for the encoders (all four AS5600 are
+// hard-wired to 0x36 with no address pin, and this board commons their SDA/SCL,
+// so they could not be addressed individually as built). Both the encoders and
+// the mux were retired; kMuxAddr was removed 2026-08-31 once nothing read it.
+// The ToF sensors never needed it — they use XSHUT re-addressing, see above.
 
 // --- ENCODERS: REMOVED 2026-08-13. Do not reinstate without reading this. ---
 //

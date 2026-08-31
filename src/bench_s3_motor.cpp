@@ -358,7 +358,8 @@ static void encodersBegin() {
   // value means it is straining to see a distant magnet. Full scale is supply
   // dependent -- 0-255 at 5 V but only 0-128 at 3.3 V, and this breakout is on
   // 3V3, so 128 is the RAIL, not the middle. Aim for ~64.
-  // tools/magtune.py renders this live as a bar for positioning by eye.
+  // A host-side tuner (tools/magtune.py) rendered this as a bar for positioning
+  // by eye; removed 2026-08-31 with the encoders.
   Serial.println(F("  (AGC: aim ~64 on a 3V3 breakout; 128 = rail = magnet too far)"));
 }
 

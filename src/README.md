@@ -8,6 +8,6 @@
 | `bench_s3_motor.cpp`, `bench_motor.cpp` | BLDC motor bring-up on the DevKit / on the Wheel Drive PCB |
 | `i2c_scan.cpp`, `tof_scan.cpp` | bus utilities: scan the I²C bus, probe VL53L0X sensors |
 | `pcb_identify.cpp` | identifies which PCB a DevKit is plugged into by probing its peripherals |
-| `bench_align.h`, `bench_drive.h`, `bench_mix.h`, `bench_i2cmux.h`, `bench_tof4.h`, `bench_bld_drive.h` | focused bench exercises for one subsystem at a time |
+| `bench_align.h`, `bench_drive.h`, `bench_mix.h`, `bench_bld_drive.h` | focused bench exercises for one subsystem at a time |
 
 PlatformIO environments for all of these live in [`platformio.ini`](../platformio.ini).

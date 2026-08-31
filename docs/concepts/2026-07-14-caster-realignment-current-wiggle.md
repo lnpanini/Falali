@@ -42,7 +42,7 @@ Recommended layering: **jog proactively → wiggle reactively → all gated on h
   - **Architecture:** gyro for smooth short-term yaw (holds heading through a maneuver) **+ the dock ToF as the periodic absolute correction**. That makes the mag redundant.
   - **AliExpress candidates:** **ICM-42688-P** (~$5, low-noise gyro — best value pick); **MPU6050** (~$1.50, drifts over minutes but fine to prototype); or **BNO085 in UART-RVC mode** (~$12–20, on-chip fusion streams yaw/pitch/roll → zero fusion code). Watch counterfeits on MPU6050/9250 boards.
   - **Placement matters more than the chip:** mount far from motors/high-current wiring, near the rotation centre, on foam/rubber for vibration damping.
-- **Encoders (AS5600) — DEFERRED.** Not needed for this concept. Revisit only if bench testing proves hall resolution is the bottleneck for smooth low-speed creep. If retrofitting: the AS5600 has a **fixed I²C address (0x36)** → four on one bus collide; use **analog/PWM output mode on 4 ADC pins** (cleanest), a TCA9548A mux, or the address-programmable **AS5600L**.
+- ~~**Encoders (AS5600) — DEFERRED.**~~ **ABANDONED.** Written as deferred; they were never made to work and the project shipped without wheel-speed feedback of any kind. The AS5600 boards and shaft magnets are **still physically mounted on the motors**, unwired and absent from the firmware. Two board-level faults killed them — see [`docs/hardware/boards.md`](../hardware/boards.md) §1. The TCA9548A mux route suggested below went with them; if anyone revisits wheel-speed feedback, **the motors' own hall sensors land on the drivers' screw terminals** and are the cheaper route ([`docs/hardware/components.md`](../hardware/components.md) §2).
 
 ## Open questions / next steps to prototype
 

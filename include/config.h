@@ -20,8 +20,8 @@ constexpr uint32_t kTelemetryPeriodMs = 200;  // 5 Hz status publish
 //
 // The mux constants that used to live here described the ENCODER branches, not
 // the ToF -- pointing the ToF driver at them was a real bug, fixed 2026-08-11
-// (see the comment on g_tof in src/main.cpp). They are gone with the encoders;
-// pins::kMuxAddr remains only for the bring-up bus scan.
+// (see the comment on g_tof in src/main.cpp). They are gone with the encoders,
+// as is pins::kMuxAddr itself (removed 2026-08-31).
 constexpr uint8_t kNumZones = 4;
 
 // --- Clamp safety ---

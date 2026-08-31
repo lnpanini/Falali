@@ -571,18 +571,18 @@ partly on the cone-geometry model in §8, which has not been independently teste
 >
 > ```
 > 3000 RPM ÷ 15  = 200 RPM at the wheel
-> π × 150 mm     = 471.2 mm circumference
-> 200/60 × 471.2 = 1571 mm/s
+> π × 152 mm     = 477.5 mm circumference
+> 200/60 × 477.5 = 1592 mm/s
 > ```
 >
 > **This rests on the 15:1 ratio**, which is inherited from earlier project notes
 > rather than read off the gearbox, and the purchase listing groups this motor as
-> "ratio 10–18". At 18:1 the ceiling would be 1309 mm/s and would rule out 1384
-> as well; at 10:1 it would be 2356 mm/s and rule out nothing. Confirming the
+> "ratio 10–18". At 18:1 the ceiling would be 1326 mm/s and would rule out 1384
+> as well; at 10:1 it would be 2388 mm/s and rule out nothing. Confirming the
 > ratio from the gearbox label would firm all of this up.
 >
-> **The 1657 mm/s estimate is 105 % of that and is rejected outright.** 1155,
-> 1231 and 1384 all survive at 74 %, 78 % and 88 % of ceiling respectively. This
+> **The 1657 mm/s estimate is 104 % of that and is rejected outright.** 1155,
+> 1231 and 1384 all survive at 73 %, 77 % and 87 % of ceiling respectively. This
 > does not confirm the configured 1231, but it caps the range from above with a
 > number that owes nothing to the cone model in §8 — the first independent
 > constraint this quantity has had. Datasheet in

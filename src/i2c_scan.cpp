@@ -21,8 +21,6 @@
 
 #include "pins.h"
 
-static constexpr uint8_t MUX_ADDR = 0x70;   // TCA9548A, A0/A1/A2 -> GND
-
 // What we expect to find, so the output reads as a verdict and not a puzzle.
 static const char* identify(uint8_t addr) {
   switch (addr) {
@@ -31,12 +29,12 @@ static const char* identify(uint8_t addr) {
     case 0x31: return "VL53L0X FR (re-addressed)";
     case 0x32: return "VL53L0X RL (re-addressed)";
     case 0x33: return "VL53L0X RR (re-addressed)";
-    case 0x36: return "AS5600 encoder";
+    case 0x36: return "AS5600 encoder -- ABANDONED, should not be on this bus";
     case 0x48: return "ADS1115 (ADDR->GND)  <-- the wanted strap";
     case 0x49: return "ADS1115 (ADDR->VDD)";
     case 0x4A: return "ADS1115 (ADDR->SDA) *OR* BNO08x (default) -- AMBIGUOUS";
     case 0x4B: return "ADS1115 (ADDR->SCL) *OR* BNO08x (ADR high) -- AMBIGUOUS";
-    case 0x70: return "TCA9548A/PCA9548A mux";
+    case 0x70: return "TCA9548A/PCA9548A mux -- RETIRED, should not be present";
     default:   return "unknown";
   }
 }
@@ -60,18 +58,6 @@ static uint8_t scanRange(bool* found) {
   return n;
 }
 
-static bool muxSelect(uint8_t ch) {
-  Wire.beginTransmission(MUX_ADDR);
-  Wire.write(static_cast<uint8_t>(1u << ch));
-  return Wire.endTransmission() == 0;
-}
-
-static void muxDisable() {
-  Wire.beginTransmission(MUX_ADDR);
-  Wire.write(static_cast<uint8_t>(0));
-  Wire.endTransmission();
-}
-
 static void fullSweep();
 
 void setup() {
@@ -91,32 +77,16 @@ void setup() {
   fullSweep();
 }
 
-// Trunk plus every mux channel. 'r' used to re-scan only the trunk, which made a
-// rescan silently useless for the one question this tool exists to answer --
-// what is behind the channels. A repeat must repeat the whole thing.
+// One flat sweep of the bus. There used to be a per-channel pass behind a
+// TCA9548A mux; the mux was retired with the encoders 2026-08-31 and every
+// device on this board now sits directly on the trunk.
 static void fullSweep() {
   Serial.println(F("\n\n=============== I2C BUS INVENTORY ==============="));
   Serial.printf("SDA = GPIO%u   SCL = GPIO%u   100 kHz\n",
                 pins::kI2C_SDA, pins::kI2C_SCL);
 
-  Serial.println(F("\n--- TRUNK (mux channels all disabled) ---"));
-  const bool mux_present = ping(MUX_ADDR);
-  if (mux_present) muxDisable();
-
   bool found[0x78] = {false};
   scanRange(found);
-
-  if (mux_present) {
-    for (uint8_t ch = 0; ch < 8; ++ch) {
-      Serial.printf("\n--- MUX CHANNEL %u ---\n", ch);
-      if (!muxSelect(ch)) { Serial.println(F("  SELECT FAILED -- mux did not ACK")); continue; }
-      scanRange(nullptr);
-    }
-    muxDisable();
-  } else {
-    Serial.println(F("\nNo mux at 0x70 -- encoders cannot be read yet "
-                     "(all four AS5600 share 0x36)."));
-  }
 
   Serial.println(F("\n--- VERDICT ---"));
   if (!found[0x48] && !found[0x49] && !found[0x4A] && !found[0x4B])
@@ -129,9 +99,11 @@ static void fullSweep() {
                      "  Two devices at one address can ACK as if healthy -- do not\n"
                      "  read this as 'both fine'. Re-strap the ADS1115 to 0x48."));
   if (found[0x36])
-    Serial.println(F("  0x36 on the TRUNK: an AS5600 is still commoned to the main bus."));
+    Serial.println(F("  0x36 responded: an AS5600 is still wired to the bus. The encoders\n"
+                     "  were abandoned -- the boards stay bolted to the motors but should\n"
+                     "  not be connected to anything."));
 
-  Serial.println(F("\nPress 'r' to repeat the full sweep."));
+  Serial.println(F("\nPress 'r' to repeat the sweep."));
 }
 
 void loop() {

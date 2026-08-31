@@ -27,7 +27,7 @@ import serial  # pyserial
 
 BAUD = 115200
 
-# Status lines from src/bench_s3_motor.cpp look like:
+# Status lines from the bench sketches look like:
 #   EN:on  BRK:off DIR:fwd  duty 1228/4095 (30%)  ~0.99 V at SV
 STATUS_RE = re.compile(
     r"EN:(\w+)\s+BRK:(\w+)\s+DIR:(\w+)\s+duty\s+(\d+)/(\d+)\s+\((\d+)%\)\s+~([\d.]+)\s*V"

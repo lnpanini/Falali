@@ -17,7 +17,8 @@ set(srcs
         "../../lib/domain/DockingStateMachine.cpp"
         "../../lib/domain/SafetyMonitor.cpp")
 
-# VL53L0X is only needed by sketch.cpp's auto-align; harmless to keep listed.
+# VL53L0X is required by sketch_pcb.cpp, which includes Vl53l0xArray.h for the
+# four corner ToF sensors.
 set(requires "bluepad32" "bluepad32_arduino" "arduino" "btstack" "VL53L0X")
 
 idf_component_register(SRCS "${srcs}"

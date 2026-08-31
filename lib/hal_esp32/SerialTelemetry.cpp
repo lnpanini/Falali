@@ -4,7 +4,7 @@
 #include <ArduinoJson.h>
 #include <SerialCommands.h>
 
-namespace tb {
+namespace fal {
 namespace {
 
 // One pending operator command, set by the SerialCommands callbacks and consumed
@@ -76,4 +76,4 @@ void SerialTelemetry::log(const char* msg) {
   Serial.println(msg);
 }
 
-} // namespace tb
+} // namespace fal

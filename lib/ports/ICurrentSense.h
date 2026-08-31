@@ -2,7 +2,7 @@
 #include <cstddef>
 #include <cstdint>
 
-namespace tb {
+namespace fal {
 
 // Per-wheel DC bus current.
 //
@@ -23,7 +23,7 @@ struct ICurrentSense {
   // needs ~8 ms per single-shot conversion at 128 SPS.
   virtual void update(uint32_t now_ms) = 0;
 
-  // Amps for one wheel, index order matching tb::Corner (FL, FR, RL, RR).
+  // Amps for one wheel, index order matching fal::Corner (FL, FR, RL, RR).
   // Signed: a bidirectional part reads negative when BRK pushes current back
   // toward the supply, and swallowing that sign would hide regeneration.
   virtual float amps(size_t wheel) const = 0;
@@ -31,4 +31,4 @@ struct ICurrentSense {
   virtual bool valid() const = 0;
 };
 
-}  // namespace tb
+}  // namespace fal

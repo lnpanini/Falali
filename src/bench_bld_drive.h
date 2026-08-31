@@ -14,7 +14,7 @@
 // SIGN CONVENTION
 // ---------------
 // Uses bench_mix.h, where vy positive = strafe RIGHT and w positive = rotate CW.
-// That is the OPPOSITE of tb::DriveCommand in lib/ports/types.h (vy+ = LEFT).
+// That is the OPPOSITE of fal::DriveCommand in lib/ports/types.h (vy+ = LEFT).
 // Both are self-consistent; the two conventions cancel because the mixers'
 // signs also differ. Do not "fix" one without the other.
 

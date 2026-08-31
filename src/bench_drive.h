@@ -3,7 +3,7 @@
 
 #include "bench_mix.h"
 
-// Shared mecanum drivetrain for the TrolleyBot bench rig — ONE source of truth
+// Shared mecanum drivetrain for the Falali bench rig — ONE source of truth
 // for the L298N pin map, per-wheel direction calibration, and the mecanum mix.
 // Included by BOTH the serial bench firmware (src/bench_check.cpp) and the
 // Bluepad32 gamepad frontend (bench_ble/main/sketch.cpp). Header-only (C++17

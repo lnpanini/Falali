@@ -224,7 +224,7 @@ uint32_t g_fastTime  = 0;
 // won't turn" guards here and the stall trip's own break-away gate will
 // silently disagree.
 int g_breakAwayCmd = 40;
-tb::StallDetector g_stall;
+fal::StallDetector g_stall;
 
 // ── Calibration: transfer curve ──────────────────────────────────────────
 // Four legs, each 33 points at cmd = min(i*8, 255): FR=HIGH up, HIGH down,
@@ -704,7 +704,7 @@ static void cmdWheelRevs(SerialCommands* s) {
   // ratio — but it means a typo'd `wheelrevs -10` would sail past a result-based
   // check and print a plausible row computed as if you had typed +10.
   if (revs <= 0.0f) { Serial.println(F("? revolutions must be > 0")); return; }
-  const float measured = tb::gearRatio(g_gearCounts, revs, ENC_CPR);
+  const float measured = fal::gearRatio(g_gearCounts, revs, ENC_CPR);
   if (measured <= 0.0f) { Serial.println(F("? no motion recorded — nothing to divide")); return; }
   const float err = 100.0f * (measured - GEAR_RATIO) / GEAR_RATIO;
   Serial.println(F("CSV,gear,motor_counts,wheel_revs_reported,measured_ratio,label_ratio,error_pct"));

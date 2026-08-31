@@ -1,11 +1,11 @@
-# TrolleyBot — ESP32 Under-Ride Docking Firmware Design
+# Falali — ESP32 Under-Ride Docking Firmware Design
 
 **Date:** 2026-07-06
 **Status:** Implemented. **Rev 2026-07-07:** alignment redesigned to a 4-corner **edge + odometry**
 method (see §5) after the trolley base became a guaranteed solid board; the clamp/arm mechanism is now an
 external subsystem (handoff at `IClamp`).
 **Owner:** Bryan
-**Supersedes direction of:** `2026-06-16-trolleybot-agv-design.md` (Jetson/ROS 2/SLAM). That document is
+**Supersedes direction of:** `2026-06-16-falali-agv-design.md` (Jetson/ROS 2/SLAM). That document is
 kept as history; this is a **deliberate pivot** to an ESP32-only prototype.
 
 ## 1. Goal & Scope

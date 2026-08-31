@@ -1,4 +1,4 @@
-// TrolleyBot — ESP32-S3 under-ride docking firmware: composition root.
+// Falali — ESP32-S3 under-ride docking firmware: composition root.
 //
 // The ONLY translation unit that knows about both hardware and domain. It builds
 // the real adapters, wires them into the pure domain objects, and runs the fixed-
@@ -29,7 +29,7 @@
 #include "Bno08xImu.h"
 #include "Vl53l0xArray.h"
 
-using namespace tb;
+using namespace fal;
 
 // ---- Hardware adapters -----------------------------------------------------
 ArduinoClock g_clock;
@@ -171,7 +171,7 @@ void setup() {
   if (!g_imu.begin()) g_telemetry.log("BNO08x init failed at 0x4B — heading unavailable");
   if (!g_current.begin()) g_telemetry.log("ADS1115 init failed at 0x48 — NO drivetrain fault signal");
   g_align.begin();
-  g_telemetry.log("TrolleyBot ready. Commands: DOCK ABORT UNCLAMP STATUS PING RESUME");
+  g_telemetry.log("Falali ready. Commands: DOCK ABORT UNCLAMP STATUS PING RESUME");
   g_telemetry.log("drivetrain disabled until the control link is up (send PING)");
 }
 

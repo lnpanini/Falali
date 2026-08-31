@@ -4,7 +4,7 @@
 
 #include "IOdometry.h"
 
-namespace tb {
+namespace fal {
 
 class FakeOdometry : public IOdometry {
 public:
@@ -30,4 +30,4 @@ private:
   int reset_count_ = 0;
 };
 
-} // namespace tb
+} // namespace fal

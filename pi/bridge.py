@@ -1,4 +1,4 @@
-"""TrolleyBot Pi 5 bridge -- fixed-rate control loop over two ESP links.
+"""Falali Pi 5 bridge -- fixed-rate control loop over two ESP links.
 
     python -m pi.bridge            # normal run
     python -m pi.bridge --dry-run  # log only, never command motion
@@ -61,7 +61,7 @@ STAGE = int(os.environ.get("TB_STAGE", "1"))
 # platformio.ini). Raise to 921600 when ESP-BASE switches to JSON frames.
 BAUD = 115200 if STAGE == 1 else 921600
 
-log = logging.getLogger("trolleybot")
+log = logging.getLogger("falali")
 
 
 def try_realtime_priority() -> bool:

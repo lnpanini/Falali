@@ -1,7 +1,7 @@
 #pragma once
 #include <cstdint>
 
-namespace tb {
+namespace fal {
 
 // Heading source for the docking sequence.
 //
@@ -29,4 +29,4 @@ struct IImu {
   virtual bool valid() const = 0;
 };
 
-}  // namespace tb
+}  // namespace fal

@@ -4,11 +4,11 @@
 
 #include <cstdint>
 
-namespace tb {
+namespace fal {
 
 struct IClock {
   virtual ~IClock() = default;
   virtual uint32_t millis() const = 0;
 };
 
-} // namespace tb
+} // namespace fal

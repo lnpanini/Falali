@@ -5,7 +5,7 @@
 
 #include "types.h"
 
-namespace tb {
+namespace fal {
 
 struct IAlignmentSensor {
   virtual ~IAlignmentSensor() = default;
@@ -20,4 +20,4 @@ struct IAlignmentSensor {
   virtual size_t zoneCount() const = 0;
 };
 
-} // namespace tb
+} // namespace fal

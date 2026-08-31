@@ -27,7 +27,7 @@
 #include "PwmPin.h"
 #include "pins.h"
 
-namespace tb {
+namespace fal {
 
 // VERIFIED TRUE 2026-08-05: the transistor adapters are built and the full chain
 // (Mac -> ESP32-S3 -> adapter -> BLD-120A -> motor) runs. See
@@ -141,4 +141,4 @@ private:
   PwmPin sv_pwm_;
 };
 
-} // namespace tb
+} // namespace fal

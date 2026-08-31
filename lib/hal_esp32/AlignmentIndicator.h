@@ -24,7 +24,7 @@
 #include "ITelemetry.h"
 #include "pins.h"
 
-namespace tb {
+namespace fal {
 
 class AlignmentIndicator {
  public:
@@ -71,4 +71,4 @@ class AlignmentIndicator {
   bool level_ = false;
 };
 
-}  // namespace tb
+}  // namespace fal

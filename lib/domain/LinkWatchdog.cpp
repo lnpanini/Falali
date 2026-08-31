@@ -1,6 +1,6 @@
 #include "LinkWatchdog.h"
 
-namespace tb {
+namespace fal {
 
 // All elapsed-time maths below is unsigned subtraction on uint32_t, which stays
 // correct across the millis() rollover at 2^32 ms (~49.7 days). Writing it as
@@ -52,4 +52,4 @@ const char* LinkWatchdog::healthName() const {
   return "?";
 }
 
-} // namespace tb
+} // namespace fal

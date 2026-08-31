@@ -1,4 +1,4 @@
-# TrolleyBot — hardware architecture and parts list
+# Falali — hardware architecture and parts list
 
 **Last updated:** 2026-08-05. **Partially superseded 2026-08-16** — see below.
 **Authoritative sources:** `Wheel Drive PCB.net` (Eeschema 9.0.6, 2026-08-05) for every
@@ -94,7 +94,7 @@ control split and the link watchdog.
 Extracted from the netlist. Mirrored in `include/pins.h`; that file is the code's
 copy of this table.
 
-### Wheel motors (index order FL, FR, RL, RR — matches `tb::Corner`)
+### Wheel motors (index order FL, FR, RL, RR — matches `fal::Corner`)
 
 | Signal | FL | FR | RL | RR |
 |---|---|---|---|---|
@@ -223,7 +223,7 @@ Pass-through, same pin order both sides (`BRK · EN · F/R · COM · SV`):
 | 5 SV | 1.5 kΩ series resistor |
 
 **The transistor inverts every control line.** Handled in firmware by the single
-switch `tb::kControlViaMosfet` in `Bld120aMotor.h`, which derives all four
+switch `fal::kControlViaMosfet` in `Bld120aMotor.h`, which derives all four
 polarity constants and forces push-pull gate drive. Verified by `static_assert`.
 
 **Device:** **2N3904** (NPN). Base current (3.3 − 0.7)/10 k = 260 µA against a

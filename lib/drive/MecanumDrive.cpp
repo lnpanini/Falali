@@ -1,6 +1,6 @@
 #include "MecanumDrive.h"
 
-namespace tb {
+namespace fal {
 
 namespace {
 float absf(float v) { return v < 0 ? -v : v; }
@@ -52,4 +52,4 @@ bool MecanumDrive::fault() const {
   return fl_.fault() || fr_.fault() || rl_.fault() || rr_.fault();
 }
 
-} // namespace tb
+} // namespace fal

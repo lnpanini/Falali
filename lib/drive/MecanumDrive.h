@@ -6,7 +6,7 @@
 #include "IDrive.h"
 #include "IMotor.h"
 
-namespace tb {
+namespace fal {
 
 class MecanumDrive : public IDrive {
 public:
@@ -26,4 +26,4 @@ private:
   IMotor& rr_;
 };
 
-} // namespace tb
+} // namespace fal

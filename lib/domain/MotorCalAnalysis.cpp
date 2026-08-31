@@ -1,6 +1,6 @@
 #include "MotorCalAnalysis.h"
 
-namespace tb {
+namespace fal {
 
 static inline float absf(float v) { return v < 0.0f ? -v : v; }
 
@@ -58,4 +58,4 @@ float gearRatio(int32_t motor_counts, float wheel_revs, int32_t cpr) {
   return counts / ((float)cpr * (wheel_revs < 0.0f ? -wheel_revs : wheel_revs));
 }
 
-} // namespace tb
+} // namespace fal

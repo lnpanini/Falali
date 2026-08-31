@@ -1,11 +1,11 @@
-// Shared value types for the TrolleyBot core.
+// Shared value types for the Falali core.
 // Pure C++17 — no Arduino, no dynamic allocation (embedded-friendly).
 #pragma once
 
 #include <cstddef>
 #include <cstdint>
 
-namespace tb {
+namespace fal {
 
 // Four corner ToF sensors, one per platform corner.
 constexpr size_t kNumCorners = 4;
@@ -67,4 +67,4 @@ enum class Command : uint8_t { None, Dock, Abort, Unclamp, Status, Heartbeat, Re
 // Clamp actuation intent.
 enum class ClampAction : uint8_t { Stop, Open, Close };
 
-} // namespace tb
+} // namespace fal

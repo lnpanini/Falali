@@ -1,9 +1,9 @@
-# TrolleyBot — Bench auto edge-align (2-sensor) Design
+# Falali — Bench auto edge-align (2-sensor) Design
 
 **Date:** 2026-07-08
 **Status:** Approved (brainstorm). Bench-validation increment, not production firmware.
 **Owner:** Bryan
-**Relates to:** `2026-07-06-trolleybot-esp32-docking-design.md` (the 4-corner production design this de-risks).
+**Relates to:** `2026-07-06-falali-esp32-docking-design.md` (the 4-corner production design this de-risks).
 
 ## 1. Goal & Scope
 

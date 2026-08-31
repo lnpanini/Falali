@@ -106,7 +106,7 @@ class FakeEsp:
                 self.log("RESUME refused - link not healthy")
 
     def run(self) -> None:
-        self.log("TrolleyBot ready. Commands: DOCK ABORT UNCLAMP STATUS PING RESUME")
+        self.log("Falali ready. Commands: DOCK ABORT UNCLAMP STATUS PING RESUME")
         self.log("drivetrain disabled until the control link is up (send PING)")
         next_pub = time.monotonic()
         while True:

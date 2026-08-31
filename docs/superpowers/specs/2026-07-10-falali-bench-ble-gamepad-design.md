@@ -1,9 +1,9 @@
-# TrolleyBot — Bench BLE Gamepad Control Design
+# Falali — Bench BLE Gamepad Control Design
 
 **Date:** 2026-07-10
 **Status:** Approved (brainstorm). Bench-input increment, layered on the existing `src/bench_check.cpp`.
 **Owner:** Bryan
-**Relates to:** `2026-07-08-trolleybot-bench-auto-align-design.md` (the WASD + auto-align sketch this adds an input source to).
+**Relates to:** `2026-07-08-falali-bench-auto-align-design.md` (the WASD + auto-align sketch this adds an input source to).
 
 ## 1. Goal & Scope
 

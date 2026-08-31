@@ -8,7 +8,7 @@
 
 #include "ITelemetry.h"
 
-namespace tb {
+namespace fal {
 
 class FakeTelemetry : public ITelemetry {
 public:
@@ -52,4 +52,4 @@ private:
   std::vector<std::string> logs_;
 };
 
-} // namespace tb
+} // namespace fal

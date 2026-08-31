@@ -7,14 +7,49 @@
 - **[V]** — verified by 3-vote adversarial check against the primary source (survived refutation).
 - **[S]** — single-source / sourced-but-unverified: the claim comes from a real fetched source but its independent verification did not complete (the research run hit a session limit mid-verify). Treat as credible-but-uncorroborated.
 - **[E]** — engineering reasoning / worked calculation (two independent LLM analyses via Gemini + local arithmetic), not an empirical measurement.
+- **[O]** — observed on the assembled robot, or read from the project's own
+  requirements. Added 2026-08-31; **outranks [E].**
 
 ---
 
+> # CORRECTION 2026-08-31 — built on inputs the project never specified
+>
+> This report concludes that a horizontal-only clamp *"will spin its wheels and go
+> nowhere."* That does not describe this machine, and the reason is the inputs,
+> not the arithmetic.
+>
+> | | Assumed here | Specified by the project **[O]** |
+> |---|---|---|
+> | Robot mass | **5–15 kg** | **≥ 25 kg** (delivered ~30 kg) |
+> | Load to move | **200 kg** | **100 kg** |
+>
+> A **4× error in the traction ratio**, and the ratio is the whole argument.
+> Source: `docs/term-paper-falali-amr.pdf`, Table 1.
+>
+> **The project had already answered the traction constraint — with mass.** Table 1
+> specifies *"AMR total mass ≥ 25 kg — Drive wheels maintain grip without slipping
+> under load."* That requirement **is** the mitigation, chosen instead of a lifting
+> clamp. `docs/pdr-falali-amr.pdf` lists *"uses the trolley's own caster wheels and
+> the AMR never lifts the trolley"* under **Innovation In Our Project**.
+>
+> So the recommendation below — transfer weight or lift — proposes an approach the
+> project deliberately rejected, for a problem it had already solved another way.
+>
+> **[O] Outcome:** the delivered robot passed its 100 kg drive test clamping
+> horizontally, transferring no weight, on dry concrete — and went past it,
+> moving **~150 kg** (three adults on a trolley platform, mass estimated rather
+> than weighed). The requirement was exceeded by roughly 1.5×, in the regime this
+> report said was impossible.
+>
+> The original text is left intact below. A report that quietly agrees with events
+> it got wrong teaches nothing, and this failure mode — a model whose assumed
+> range never overlapped the specification — is worth leaving visible.
+
 ## TL;DR — the best way to move it
 
-1. **The binding constraint is your robot's own wheel traction, not motor torque.** [E] A light mecanum robot (5–15 kg) simply cannot put enough force into the floor to start a 200 kg trolley rolling. Motors that spin the wheels are trivial; the wheels *slip* long before the trolley moves.
+1. **The binding constraint is your robot's own wheel traction, not motor torque.** [E] **This part held up, and the project acted on it — by specifying a ≥ 25 kg robot.** A light mecanum robot (5–15 kg) simply cannot put enough force into the floor to start a 200 kg trolley rolling. Motors that spin the wheels are trivial; the wheels *slip* long before the trolley moves.
 
-2. **Therefore the clamp must have a vertical load path — it must transfer trolley weight onto the robot's wheels — not just grip horizontally.** [E] Transferring ~**20–30 % of the trolley's weight (≈40–60 kg)** onto the robot is the minimum to move it reliably; **fully lifting the casters off the floor** is the robust industrial answer. A horizontal-only clamp will spin its wheels and go nowhere.
+2. ~~**Therefore the clamp must have a vertical load path — it must transfer trolley weight onto the robot's wheels — not just grip horizontally.**~~ **[SUPERSEDED — see the correction above.]** [E] Transferring ~**20–30 % of the trolley's weight (≈40–60 kg)** onto the robot is the minimum to move it reliably; **fully lifting the casters off the floor** is the robust industrial answer. ~~A horizontal-only clamp will spin its wheels and go nowhere.~~ **[O] The delivered horizontal-only clamp passed the 100 kg drive test.** The conclusion followed from a 5–15 kg robot against 200 kg; against ~30 kg and 100 kg it does not.
 
 3. **Lifting solves two problems at once.** Adding weight to the robot fixes traction *and* — because unloaded swivel casters rotate freely to a home/trailing position — it eliminates the brutal "caster-flip" torque you'd otherwise fight on every direction change. [S, patent US 12,472,772]
 
@@ -77,6 +112,13 @@ A pushing robot can only exert as much force as friction between **its own wheel
 |---|---|---|---|---|
 | 10 kg | 98 N | 29 N | **39 N** | 49 N |
 | 15 kg | 147 N | 44 N | 59 N | **74 N** |
+| **25 kg — the requirement [O]** | 245 N | 74 N | 98 N | **123 N** |
+| **~30 kg — as delivered [O]** | **294 N** | 88 N | 118 N | **147 N** |
+
+Neither of the bottom two rows existed when this was written; the table stopped
+at 15 kg. On **dry concrete** the measured PU mecanum-roller μ is 0.65, giving
+μ_eff ≈ 0.5 after the geometric penalty — so the delivered robot sits in the
+**147 N** cell.
 
 *Force required:*
 - Sustained cruise: **~60 N** (C_rr 0.03), up to ~120 N (soft wheels)
@@ -84,7 +126,40 @@ A pushing robot can only exert as much force as friction between **its own wheel
 - Startup, misaligned casters: **~150–260 N**
 - Plus acceleration to 0.3 m/s: 31 N (gentle, 0.15 m/s²) to 63 N (brisk, 0.3 m/s²) for the 210 kg system
 
-**Verdict [E]:** the best a plausibly-light robot delivers (~74 N) is **below even the aligned breakaway force (~120 N)**, and far below the misaligned startup peak. **A light mecanum robot cannot start a 200 kg caster trolley without weight transfer.** Sustained cruise *might* be marginally feasible on excellent wheels once moving, but you can never get it moving. This matches both independent Gemini analyses and the real-world push-force data in A1–A2.
+*Same requirements scaled to the **100 kg** the project actually specified (×0.5):*
+
+| | @ 200 kg (modelled here) | @ 100 kg (**requirement**) | @ ~150 kg (**observed**) |
+|---|---|---|---|
+| Sustained cruise | ~60 N | **~30 N** | ~45 N |
+| Breakaway, aligned | 120–150 N | **60–75 N** | 90–113 N |
+| Startup, misaligned | 150–260 N | **75–130 N** | 113–195 N |
+
+**147 N available against a 60–75 N aligned breakaway — roughly 2× at the
+requirement**, and still 1.3–1.6× at the ~150 kg actually moved. Above the
+misaligned band at 100 kg; inside it at 150 kg, so a stall on badly flipped
+castors is plausible at the heavier load. Independently, the project's own worst-case castor
+figure is μ·m·g = 0.15 × 100 × 9.81 = **147 N**, level with available traction —
+presumably why *"moves under all 4 castor orientations"* was written as its own
+acceptance criterion rather than assumed. It passed.
+
+**Floor sensitivity [E].** μ_eff is the whole ballgame, and concrete is the best
+case:
+
+| Surface | μ_eff | Force @ 30 kg | vs 60–75 N aligned / 75–130 N misaligned |
+|---|---|---|---|
+| Dry concrete | 0.50 | **147 N** | clears both — **the tested case** |
+| Painted | 0.35 | 103 N | clears aligned; inside the misaligned band |
+| Wet | 0.30 | 88 N | clears aligned; likely fails misaligned |
+
+**Verdict [E], as originally written:** the best a plausibly-light robot delivers (~74 N) is **below even the aligned breakaway force (~120 N)**, and far below the misaligned startup peak. **A light mecanum robot cannot start a 200 kg caster trolley without weight transfer.**
+
+> **Revised verdict [O], 2026-08-31.** True *as scoped* — for a 5–15 kg robot
+> against 200 kg. Neither figure is this project's. Against the specified
+> **≥ 25 kg robot and 100 kg load**, the delivered ~30 kg machine supplies ~147 N
+> on dry concrete, **passed its 100 kg drive test with a horizontal-only clamp,
+> and moved ~150 kg** — 1.5× the requirement. The 200 kg case modelled here was
+> never a requirement, remains unproven, and on anything worse than concrete is
+> unlikely. Sustained cruise *might* be marginally feasible on excellent wheels once moving, but you can never get it moving. This matches both independent Gemini analyses and the real-world push-force data in A1–A2.
 
 **Weight transfer fixes it.** Let *f* = fraction of trolley weight carried by the robot's wheels. Then N_robot = (m_robot + f·200)·g and the caster load (hence caster resistance) drops to (1−f)·200. Solving the startup inequality [E, Gemini]:
 
@@ -159,8 +234,9 @@ The single largest caveat: **the repo documents none of the trolley's physical p
 1. **Actual loaded trolley mass** (spec says "up to 200 kg" — confirm the real distribution and worst case).
 2. **Caster wheel diameter, tread material, bearing type** — these swing C_rr by ~4× (0.02 → 0.09) and set the breakaway/flip peaks.
 3. **Floor material & condition** (concrete, epoxy, tile, dust/wet) — sets μ_eff for the robot (0.65 dry concrete down to 0.30 wet) and caster resistance.
-4. **Does the clamp lift, and by how much?** — decides whether you're in the "full lift / no caster problem" regime or the "partial transfer + mitigations" regime. Measure the actual weight fraction transferred.
-5. **Robot mass and mecanum μ_eff on the real floor** — pull-test the assembled robot (spring scale) to get its true available push force; compare against a spring-scale push test of the loaded trolley (sustained + breakaway + deliberately-misaligned). If robot push < trolley breakaway, the design *must* lift.
+4. ~~**Does the clamp lift, and by how much?**~~ **ANSWERED [O]: it does not, by design.** It transfers no weight. The robot is in neither modelled regime but a third this report did not consider — *heavy enough that it does not need to* — which is what the ≥ 25 kg requirement bought.
+5. **Robot mass and mecanum μ_eff on the real floor** — partially answered. Mass is **~30 kg [O]** against a ≥ 25 kg requirement, and 100 kg moved on dry concrete (~150 kg observed, estimated), consistent with
+   μ_eff ≈ 0.5. **Still unmeasured:** a spring-scale pull test for true push force, the misaligned-castor breakaway, and behaviour on any surface other than dry concrete.
 
 A 30-minute bench session with a luggage/fish spring scale (push the trolley; pull-test the robot) will replace most of the [S]/[E] estimates here with hard numbers specific to your hardware.
 

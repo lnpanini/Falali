@@ -13,7 +13,7 @@ nobody mistakes a gap for a completed survey.
 
 | Qty | Part | Spec | Notes |
 |---|---|---|---|
-| 1 | Battery pack | **36 V, 10 Ah**, internal BMS | **Custom-built — no datasheet exists.** The BMS is what latches off on buck inrush (`startup.md` §3), and its trip threshold is therefore unknown |
+| 1 | Battery pack | **36 V, 10 Ah Li-Ion, 2–3 C (20–30 A)** | Sized in the term paper: 240 W average draw, 22.8 A peak at 36 V. **Custom-built — no cell/BMS datasheet exists**, and the BMS is what latches off on buck inrush (`startup.md` §3) |
 | 1 | Main switch | **40 A** | Feeds all three bucks |
 | 1 | Buck converter | 36/48 V in → **24 V, 30 A** (720 W) | wheel motors |
 | 1 | Buck converter | 24/36/48 V in → **12 V, 25 A** (300 W) | arm extension, behind the button |
@@ -55,8 +55,9 @@ nobody mistakes a gap for a completed survey.
 |---|---|---|---|
 | 4 | **BLD-120A** BLDC driver | 12–30 V in; **8 A continuous, 30 A instantaneous (<3 s)** | Native PWM speed input. No ALM output — "RUN/ALM" is an LED only |
 | 4 | BLDC gearmotor | **80 mm flange, DC 24 V, 3000 RPM, 15:1** | Full table below |
-| 4 | Mecanum wheel | **150 mm** diameter | |
+| 4 | Mecanum wheel | **152 mm** diameter | r = 0.076 m |
 | 4 | Custom motor mount | machined, already fitted | Diametric magnets already bonded to the shafts (for the abandoned encoders) |
+| 1 | Chassis | **800 × 500 mm**, 2020 aluminium extrusion | 80 mm suspended sub-frame shelf below the main frame for the battery. Supports 15–20 kg distributed, ~70 kg with a single cross brace |
 
 ### Motor — 80 mm flange series
 
@@ -79,8 +80,8 @@ Datasheet: [`img/motor-80-flange-spec-table.jpeg`](img/motor-80-flange-spec-tabl
 > 10–18"*, so the ratio is a purchase option within a band rather than a fixed
 > property of the part number. Everything in this project has been documented as
 > **15:1**, and the speed ceiling below is computed from it — but the ceiling
-> moves a long way across that band: 10:1 gives 2356 mm/s, 15:1 gives 1571 mm/s,
-> 18:1 gives 1309 mm/s. At 18:1 the ceiling would fall *below* one of the existing
+> moves a long way across that band: 10:1 gives 2388 mm/s, 15:1 gives 1592 mm/s,
+> 18:1 gives 1326 mm/s. At 18:1 the ceiling would fall *below* one of the existing
 > `max_lin_mm_s` estimates. **[The 15:1 figure is inherited from earlier project
 > notes, not read off the gearbox.]**
 
@@ -100,8 +101,8 @@ Datasheet: [`img/motor-80-flange-spec-table.jpeg`](img/motor-80-flange-spec-tabl
 
 | | |
 |---|---|
-| Tractive force per wheel (torque-limited) | 4.8 N·m ÷ 0.075 m = **64 N** |
-| All four wheels | **256 N** |
+| Tractive force per wheel (torque-limited) | 4.8 N·m ÷ 0.076 m = **63 N** |
+| All four wheels | **253 N** |
 | Current at rated load | 5 A × 4 = **20 A at 24 V = 480 W** |
 | Same, drawn from the 36 V pack | ~13.3 A ideal, **~15.7 A at 85 % buck efficiency** |
 | Driver headroom | 8 A each = 32 A at 24 V, well above the motors' 20 A |
@@ -112,12 +113,53 @@ Two things worth drawing out of that table:
 - **The 24 V buck is rated 30 A** against a ~20 A four-wheel demand — about 50 %
   headroom, so the drivetrain rail is adequately sized. The pack sees ~16 A
   through it.
-- **256 N of tractive force is more than the tyres can use.** This is the
-  quantitative version of the conclusion the caster research already reached:
-  **traction, not torque, is the limit**, which is why the clamp has to transfer
-  trolley weight onto the robot's own wheels rather than merely grip. A 200 kg
-  trolley is not moved by having enough motor. **[HYPOTHESIS on the exact
-  traction figure — it depends on robot mass and floor µ, neither recorded.]**
+- **253 N of tractive force is more than the tyres can use.** Traction, not
+  torque, is the binding constraint: once the wheels slip, more motor buys
+  nothing, and the ceiling is µ · robot weight.
+
+> ### How this project answered the traction constraint **[VERIFIED — term paper Table 1]**
+>
+> **Not by lifting. By making the robot heavy.** The requirements table specifies:
+>
+> | Requirement | Target | Reasoning |
+> |---|---|---|
+> | AMR total mass | **≥ 25 kg** | *"Drive wheels maintain grip without slipping under load"* |
+> | Able to move | **100 kg** | trolley + load |
+>
+> The mass requirement **is** the mitigation, chosen deliberately over a lifting
+> clamp. `docs/pdr-falali-amr.pdf` lists *"uses the trolley's own caster wheels and
+> the AMR never lifts the trolley"* under **Innovation In Our Project** — no-lift
+> is a design position, not a shortfall.
+>
+> **As delivered:** ~30 kg, against a ≥25 kg requirement. The clamp grips
+> horizontally and transfers no weight.
+>
+> | Result | Evidence |
+> |---|---|
+> | **100 kg drive test — passed** | the acceptance test. `docs/pdr-falali-amr.pdf`, and `docs/media/videos/load-test-100kg.mp4` |
+> | **~150 kg moved — requirement exceeded by ~1.5×** | three adults on a trolley platform, dry concrete. **[OBSERVED — Bryan; mass estimated, not weighed]** |
+>
+> **The numbers, at 30 kg on dry concrete** (µ_eff ≈ 0.5 after the mecanum
+> geometric penalty):
+>
+> | | Force |
+> |---|---|
+> | Available traction | **147 N** (123 N at the 25 kg minimum) |
+> | Aligned breakaway, **100 kg** (requirement) | 60–75 N → **~2× margin** |
+> | Aligned breakaway, **~150 kg** (observed) | 90–113 N → **1.3–1.6× margin** |
+> | Misaligned-castor startup, 100 kg | 75–130 N |
+> | The team's own worst-case castor figure (µ 0.15 × 100 kg) | **147 N** |
+>
+> Comfortable at the requirement, still positive at the ~150 kg actually moved,
+> and level with the team's own worst-case misalignment number — which is
+> presumably why *"moves under all 4 castor orientations"* was written as a
+> separate acceptance criterion rather than assumed. It passed.
+>
+> **Floor is the variable.** Concrete is the best case; painted ≈ 103 N and wet
+> ≈ 88 N at 30 kg, both of which fall into or below the misaligned band. The
+> 200 kg figure modelled in the caster report is **not** a project requirement —
+> see [`../research/2026-07-13-caster-load-mechanics.md`](../research/2026-07-13-caster-load-mechanics.md),
+> which was built on inputs that contradict Table 1.
 
 > The motor datasheet lists **ELD120A** as the matching controller for the DC 24 V
 > variants. **The robot does not use one — there is no ELD anywhere on this
@@ -151,26 +193,26 @@ has had for it:
 
 ```
 3000 RPM ÷ 15         = 200 RPM at the wheel
-π × 150 mm            = 471.2 mm circumference
-200 / 60 × 471.2      = 1571 mm/s          ← hard geometric ceiling
+π × 152 mm            = 477.5 mm circumference
+200 / 60 × 477.5      = 1592 mm/s          ← hard geometric ceiling
 ```
 
 `gotchas.md` Open Issue B lists four estimates of `max_lin_mm_s` spanning
-1155–1657 mm/s. Against a 1571 mm/s ceiling:
+1155–1657 mm/s. Against a 1592 mm/s ceiling:
 
 | Estimate | % of ceiling | |
 |---|---|---|
-| 1155 | 74 % | plausible |
-| **1231** *(in `config.h`)* | **78 %** | plausible |
-| 1384 | 88 % | plausible, optimistic |
-| 1657 | **105 %** | **impossible — rejected** |
+| 1155 | 73 % | plausible |
+| **1231** *(in `config.h`)* | **77 %** | plausible |
+| 1384 | 87 % | plausible, optimistic |
+| 1657 | **104 %** | **impossible — rejected** |
 
 **[VERIFIED — datasheet arithmetic]** This does not prove 1231 is right, but it
 removes the top of the range and shows the configured value is sensibly below a
 real physical limit.
 
 The datasheet also gives a **minimum** output speed of 150 RPM ÷ 15 = 10 RPM =
-**79 mm/s**. Measured break-away is ~413 mm/s — **five times higher than the
+**80 mm/s**. Measured break-away is ~413 mm/s — **five times higher than the
 drivetrain's stated minimum.** That points the "minimum speed" open item in
 `hardware-architecture.md` §9 at **friction and load**, not at gearing, wheel
 diameter or the driver's control range. **[HYPOTHESIS — arithmetic is solid, the
@@ -241,7 +283,7 @@ Two competing models, with materially different predictions:
 
 | Model | Top speed |
 |---|---|
-| Driver reads **duty** (as the PWM section implies) | 90 % duty → 3000 RPM → **1571 mm/s** |
+| Driver reads **duty** (as the PWM section implies) | 90 % duty → 3000 RPM → **1592 mm/s** |
 | Driver reads **average voltage** (as the analog curve implies) | 3.3 V → ~2100 RPM → **~1100 mm/s** |
 
 The measured `max_lin_mm_s` estimates were 1155, 1231, 1384 and 1657 mm/s. **The
@@ -250,7 +292,7 @@ prediction.**
 
 *Experiment that settles it:* level-shift SV to a 5 V PWM on one wheel — a single
 transistor stage or a 74AHCT-type buffer — and re-measure top speed. If it rises
-toward 1571 mm/s, every wheel has been running at roughly 70 % of its capability
+toward 1592 mm/s, every wheel has been running at roughly 70 % of its capability
 all along, and `max_lin_mm_s` has been calibrating a limitation rather than a
 property of the machine.
 
@@ -421,7 +463,7 @@ each part is in, and what carries over with it.
 
 - **2× ESP32-S3-DevKitC-1 N16R8.** 16 MB/8 MB parts, socketed, nothing soldered
   to them.
-- **4× BLD-120A + BLDC motor + 15:1 gearbox + 150 mm mecanum wheel.** The most
+- **4× BLD-120A + BLDC motor + 15:1 gearbox + 152 mm mecanum wheel.** The most
   expensive subsystem. **P-sv is trimmed per motor**, so a driver separated from
   its motor loses that setting.
 - **2× BTS7960**, unmodified.
@@ -495,5 +537,9 @@ Everything marked **⬚ TO FILL** above, consolidated:
       not connected** — §4
 - [x] PCA9685 exists and is plugged into a ToF header — §5, `boards.md` §3
 - [x] Motors have **hall sensors** on 5 unused AWG26 wires — §2
-- [x] Top speed ceiling **1571 mm/s**, which rejects the 1657 mm/s estimate of
-      `max_lin_mm_s` — §2
+- [x] Top speed ceiling **1592 mm/s** (152 mm wheels), which rejects the
+      1657 mm/s estimate of `max_lin_mm_s` — §2
+- [x] Chassis **800 × 500 mm** 2020 extrusion; battery **36 V 10 Ah Li-Ion,
+      2–3 C** — §1, from the term paper
+- [x] Traction answered by the **≥ 25 kg mass requirement**, not by lifting;
+      100 kg drive test passed and ~150 kg observed — §2

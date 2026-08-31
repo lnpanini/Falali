@@ -23,7 +23,6 @@
 // ---- Pins -------------------------------------------------------------------
 static const uint8_t PIN_SDA = 38, PIN_SCL = 39;
 static const uint8_t PIN_XSHUT_A = 40, PIN_XSHUT_B = 41;
-static const uint8_t MUX_ADDR = 0x70;
 
 struct MotorPins {
   uint8_t en, in1, in2;
@@ -59,13 +58,6 @@ static const uint32_t CENTER_TIMEOUT_MS = 12000; // per centring phase
 // ---- ToF --------------------------------------------------------------------
 static VL53L0X tofA, tofB;
 static bool okA = false, okB = false;
-static bool useMux = false;
-
-static void muxSelect(uint8_t ch) {
-  Wire.beginTransmission(MUX_ADDR);
-  Wire.write(static_cast<uint8_t>(1u << ch));
-  Wire.endTransmission();
-}
 static bool i2cPresent(uint8_t addr) {
   Wire.beginTransmission(addr);
   return Wire.endTransmission() == 0;
@@ -96,17 +88,10 @@ static bool initOne(VL53L0X &s, const char *tag) {
   }
   return ok;
 }
+// XSHUT re-addressing. A TCA9548A mux branch was tried here and dropped
+// 2026-08-31 -- the final design uses XSHUT on every board.
 static void bringUpToF() {
-  useMux = i2cPresent(MUX_ADDR);
-  if (useMux) {
-    Serial.println("# mux @0x70 -> A=ch0, B=ch1");
-    muxSelect(0);
-    okA = initOne(tofA, "A(ch0)");
-    muxSelect(1);
-    okB = initOne(tofB, "B(ch1)");
-    return;
-  }
-  Serial.println("# no mux -> XSHUT bring-up (A@0x30, B@0x29)");
+  Serial.println("# XSHUT bring-up (A@0x30, B@0x29)");
   pinMode(PIN_XSHUT_A, OUTPUT);
   pinMode(PIN_XSHUT_B, OUTPUT);
   digitalWrite(PIN_XSHUT_A, LOW);
@@ -123,13 +108,11 @@ static void bringUpToF() {
 }
 // Returns range in mm; sets *valid. 0xFFFF distinguishes a dead sensor for
 // display.
-static uint16_t readOne(VL53L0X &s, bool ok, uint8_t muxCh, bool *valid) {
+static uint16_t readOne(VL53L0X &s, bool ok, bool *valid) {
   if (!ok) {
     *valid = false;
     return 0xFFFF;
   }
-  if (useMux)
-    muxSelect(muxCh);
   const uint16_t mm = s.readRangeContinuousMillimeters();
   // Reject no-target / signal-fail glitches at the source: only device range
   // status 11 is a valid measurement. Without this the sensor's spurious short
@@ -385,8 +368,8 @@ void loop() {
 
   // Fresh sensor read every loop for the state machine.
   bool vA = false, vB = false;
-  const uint16_t mmA = readOne(tofA, okA, 0, &vA);
-  const uint16_t mmB = readOne(tofB, okB, 1, &vB);
+  const uint16_t mmA = readOne(tofA, okA, &vA);
+  const uint16_t mmB = readOne(tofB, okB, &vB);
   presA.update(mmA, vA);
   presB.update(mmB, vB);
   const bool a = presA.present, b = presB.present, any = a || b;

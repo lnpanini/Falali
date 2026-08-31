@@ -18,7 +18,6 @@
 // ---- ToF pins / addressing --------------------------------------------------
 inline const uint8_t PIN_SDA = 38, PIN_SCL = 39;
 inline const uint8_t PIN_XSHUT_A = 40, PIN_XSHUT_B = 41;
-inline const uint8_t MUX_ADDR = 0x70;
 
 // ---- Alignment tunables (bench-tune to the real mounting height) ------------
 inline const uint16_t BAND_MIN_MM = 20; // board "present" when reading in [min,max]
@@ -59,17 +58,6 @@ inline const float PIVOT_GAIN = 0.0f;
 // ---- ToF --------------------------------------------------------------------
 inline VL53L0X tofA, tofB;
 inline bool okA = false, okB = false;
-inline bool useMux = false;
-
-inline void muxSelect(uint8_t ch) {
-  Wire.beginTransmission(MUX_ADDR);
-  Wire.write((uint8_t)(1u << ch));
-  Wire.endTransmission();
-}
-inline bool i2cPresent(uint8_t addr) {
-  Wire.beginTransmission(addr);
-  return Wire.endTransmission() == 0;
-}
 inline bool initOne(VL53L0X &s) {
   s.setTimeout(500);
   bool ok = false;
@@ -81,18 +69,12 @@ inline bool initOne(VL53L0X &s) {
   }
   return ok;
 }
-// Bring up both front sensors: mux (ch0/ch1) if present, else XSHUT (A@0x30, B@0x29).
+// Bring up both front sensors by XSHUT re-addressing (A@0x30, B@0x29). A
+// TCA9548A mux branch was tried here and dropped 2026-08-31 -- the final design
+// uses XSHUT on every board.
 inline void alignSetup() {
   Wire.begin(PIN_SDA, PIN_SCL);
   Wire.setClock(100000); // 100kHz: reliable on the bench wiring (400k dragged the loop)
-  useMux = i2cPresent(MUX_ADDR);
-  if (useMux) {
-    muxSelect(0);
-    okA = initOne(tofA);
-    muxSelect(1);
-    okB = initOne(tofB);
-    return;
-  }
   pinMode(PIN_XSHUT_A, OUTPUT);
   pinMode(PIN_XSHUT_B, OUTPUT);
   digitalWrite(PIN_XSHUT_A, LOW);
@@ -115,15 +97,13 @@ inline void alignSetup() {
 // (rejects no-target/signal-fail glitches at the source). *fresh tells the caller
 // whether cachedMm/cachedValid were just updated (so it can debounce on real
 // samples, not on cached repeats).
-inline uint16_t readOne(VL53L0X &s, bool ok, uint8_t muxCh, uint16_t &cachedMm,
+inline uint16_t readOne(VL53L0X &s, bool ok, uint16_t &cachedMm,
                         bool &cachedValid, bool *fresh) {
   *fresh = false;
   if (!ok) {
     cachedValid = false;
     return 0xFFFF;
   }
-  if (useMux)
-    muxSelect(muxCh);
   if ((s.readReg(VL53L0X::RESULT_INTERRUPT_STATUS) & 0x07) == 0)
     return cachedMm; // no new sample yet -> don't block, reuse last reading
   const uint16_t mm = s.readReg16Bit(VL53L0X::RESULT_RANGE_STATUS + 10);
@@ -225,8 +205,8 @@ inline void alignUpdate(float vx, float vy, float w) {
   // runs at full speed instead of stalling on the integration. Debounce only on
   // fresh samples so DEBOUNCE_N counts real sensor updates, not loop iterations.
   bool freshA = false, freshB = false;
-  readOne(tofA, okA, 0, g_mmA, g_vA, &freshA);
-  readOne(tofB, okB, 1, g_mmB, g_vB, &freshB);
+  readOne(tofA, okA, g_mmA, g_vA, &freshA);
+  readOne(tofB, okB, g_mmB, g_vB, &freshB);
   if (freshA)
     presA.update(g_mmA, g_vA);
   if (freshB)

@@ -42,7 +42,7 @@ docking state machine                       arm axes X/Y, flipper servos, clamp
 mecanum mixing, 4× corner ToF centring   ⇄  limit switches, homing
 clamp handoff                             ESP-NOW over Wi-Fi (channel 1)
 
-operator: serial teleop ([teleop.py](teleop.py)) or BLE gamepad ([bench_ble/](bench_ble/))
+operator: BLE gamepad ([bench_ble/](bench_ble/))
 ```
 
 Commercial AMRs don't fit this job: platform AMRs are too tall to get under the trolleys, tow

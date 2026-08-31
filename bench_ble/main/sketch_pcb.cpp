@@ -2,8 +2,8 @@
 //
 // WHY THE BREADBOARD PIN TABLE IS NOT REUSED
 // ------------------------------------------
-// The breadboard sketch (sketch_bld.cpp, removed 2026-08-31) drove through
-// bench_bld_drive.h, whose pin table was measured on the BREADBOARD. On the
+// The breadboard sketches (sketch_bld.cpp and their shared drive header, both
+// removed 2026-08-31) used a pin table measured on the BREADBOARD. On the
 // fabricated board two corners have their roles exactly swapped:
 //
 //     GPIO21   bench: FR brake        pins.h: FR speed PWM

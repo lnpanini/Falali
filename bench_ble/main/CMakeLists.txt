@@ -1,13 +1,13 @@
 # Exactly ONE sketch may be built — each defines setup()/loop().
 #
-#   sketch_pcb.cpp  FABRICATED Wheel Drive PCB, pins.h map    <-- current
-#   sketch.cpp      L298N small bench rig + ToF auto-align
+# sketch_pcb.cpp is the only sketch. It targets the FABRICATED Wheel Drive PCB
+# and reads include/pins.h.
 #
-# sketch_bld.cpp (BLD-120A breadboard rig) was removed 2026-08-31 along with
-# the I2C-mux bench headers it depended on. Its pin table had been measured on
-# the breadboard, where the FR and RL corners have SV and BRK swapped relative
-# to the fabricated board -- building it here would have driven speed PWM into
-# two brake lines. sketch_pcb.cpp reads include/pins.h instead.
+# Two earlier sketches were removed 2026-08-31: sketch_bld.cpp (BLD-120A
+# breadboard rig) and sketch.cpp (L298N downscale prototype). Both carried pin
+# tables measured on breadboards, where the FR and RL corners have SV and BRK
+# swapped relative to the fabricated board -- building either against this board
+# would have driven speed PWM into two brake lines.
 set(srcs
         "main.c"
         "sketch_pcb.cpp"
@@ -16,7 +16,6 @@ set(srcs
         "../../lib/domain/DeadReckonOdometry.cpp"
         "../../lib/domain/DockingStateMachine.cpp"
         "../../lib/domain/SafetyMonitor.cpp")
-#       "sketch.cpp")
 
 # VL53L0X is only needed by sketch.cpp's auto-align; harmless to keep listed.
 set(requires "bluepad32" "bluepad32_arduino" "arduino" "btstack" "VL53L0X")

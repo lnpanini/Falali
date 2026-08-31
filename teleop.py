@@ -1,5 +1,9 @@
 #!/usr/bin/env python
-"""Live keyboard teleop for the Falali bench sketch (src/bench_check.cpp).
+"""Serial monitor / keypress sender for the Falali bench firmware.
+
+Written for src/bench_check.cpp (removed 2026-08-31 with the L298N downscale
+prototype); still used as the serial monitor for bench_ble — see
+bench_ble/SETUP.md.
 
 Replaces `pio device monitor`, which throws `tcsetattr: Invalid argument` on this
 host's CH343 driver. Sends single keypresses straight to the ESP32 and prints the

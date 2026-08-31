@@ -308,8 +308,11 @@ cuts. Two modules measured 60 kΩ and 165 kΩ against 280 kΩ for the healthy pa
 
 Pin tables were **deleted** from `pins.h` rather than commented out — a table
 describing hardware nobody drives is indistinguishable from one describing
-hardware somebody does. `kMuxAddr` survives only because the bring-up scan
-reports whether the mux is present.
+hardware somebody does. `kMuxAddr` outlived them for a while because the
+bring-up scan still reported whether the mux was present; **it and the mux code
+were removed 2026-08-31**, once the encoders and the Raspberry Pi 5 plan were
+both confirmed abandoned. The AS5600 boards are still physically mounted on the
+motors, unwired and undriven.
 
 **There is no wheel-speed feedback of any kind.** Per-wheel current
 (`cfg::kWheelStallAmps`) was the only drivetrain fault signal, and as of

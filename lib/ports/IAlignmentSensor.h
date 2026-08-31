@@ -1,6 +1,7 @@
 // The upward-facing alignment-sensing layer. Deliberately abstract: it yields a
 // frame of zone readings and hides whether that comes from N single-point VL53L0X
-// (XSHUT re-addressing), a TCA9548A mux, or an array part (VL53L5CX) later.
+// (XSHUT re-addressing — the only backend today) or an array part (VL53L5CX)
+// later. A TCA9548A mux backend existed until 2026-08-31.
 #pragma once
 
 #include "types.h"

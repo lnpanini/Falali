@@ -45,7 +45,8 @@ __pycache__/
 # the conclusions belong in docs/, the CSVs do not.
 bench_logs/
 
-# Superseded Arduino-IDE sketch, replaced by src/bench_motor.cpp
+# Superseded Arduino-IDE motor sketch. Its PlatformIO successor
+# (src/bench_motor.cpp) was itself deleted 2026-08-31 with the AS5600 encoders.
 bench_motor_test/
 
 # graphify knowledge-graph output — regenerable from the source it indexes

@@ -1,15 +1,13 @@
 # Exactly ONE sketch may be built — each defines setup()/loop().
 #
-#   sketch_pcb.cpp  FABRICATED Wheel Drive PCB, pins.h map    <-- current
-#   sketch_bld.cpp  BLD-120A BREADBOARD rig + Xbox gamepad
-#   sketch.cpp      L298N small bench rig + ToF auto-align
+# sketch_pcb.cpp is the only sketch. It targets the FABRICATED Wheel Drive PCB
+# and reads include/pins.h.
 #
-# *** DO NOT BUILD sketch_bld.cpp FOR THE FABRICATED BOARD. ***
-# Its pin table was measured on the breadboard, and on the PCB the FR and RL
-# corners have SV and BRK swapped -- it would drive speed PWM into two brake
-# lines. sketch_pcb.cpp reads include/pins.h instead.
-#
-# Swap the lines below to switch rigs.
+# Two earlier sketches were removed 2026-08-31: sketch_bld.cpp (BLD-120A
+# breadboard rig) and sketch.cpp (L298N downscale prototype). Both carried pin
+# tables measured on breadboards, where the FR and RL corners have SV and BRK
+# swapped relative to the fabricated board -- building either against this board
+# would have driven speed PWM into two brake lines.
 set(srcs
         "main.c"
         "sketch_pcb.cpp"
@@ -18,10 +16,9 @@ set(srcs
         "../../lib/domain/DeadReckonOdometry.cpp"
         "../../lib/domain/DockingStateMachine.cpp"
         "../../lib/domain/SafetyMonitor.cpp")
-#       "sketch_bld.cpp")
-#       "sketch.cpp")
 
-# VL53L0X is only needed by sketch.cpp's auto-align; harmless to keep listed.
+# VL53L0X is required by sketch_pcb.cpp, which includes Vl53l0xArray.h for the
+# four corner ToF sensors.
 set(requires "bluepad32" "bluepad32_arduino" "arduino" "btstack" "VL53L0X")
 
 idf_component_register(SRCS "${srcs}"

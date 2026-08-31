@@ -365,7 +365,7 @@ back toward the supply. `B` costs one bit of range and removes the question.
 
 | Part | Status |
 |---|---|
-| 4× **AS5600** magnetic encoder | **Abandoned 2026-08-13.** Two board-level faults made them unworkable — `boards.md` §1. The shaft magnets are still fitted |
+| 4× **AS5600** magnetic encoder | **Abandoned 2026-08-13.** Two board-level faults made them unworkable — `boards.md` §1. **The sensor boards and shaft magnets are still physically mounted on the motors**, but are not wired to anything and appear nowhere in the firmware |
 | 1–2× **TCA9548A** I²C mux | No longer needed. Address `0x70` survives in `pins.h` only so the bring-up scan can report whether it is present |
 | PCA9548-type mux (external) | Overheated and failed with >2 AS5600 attached. Not part of the handover **[OBSERVED — Bryan]** |
 

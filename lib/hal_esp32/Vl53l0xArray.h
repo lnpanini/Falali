@@ -2,7 +2,9 @@
 // address re-assignment (no mux). One dedicated GPIO per sensor holds it in reset
 // until we wake it and move it off the shared default address 0x29.
 //
-// Same port as Vl53l0xMux — the docking logic cannot tell which backend is in use.
+// This is the only IAlignmentSensor backend. A TCA9548A mux backend
+// (Vl53l0xMux) existed until 2026-08-31; the mux hardware was retired with the
+// encoders it was fitted for.
 #pragma once
 
 #include <Arduino.h>

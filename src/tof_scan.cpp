@@ -1,19 +1,23 @@
 // Standalone ToF bring-up test — NOT part of the docking firmware.
 // Build/flash with:  pio run -e toftest -t upload   then   pio device monitor -b 115200
 //
-// It scans the I2C bus, then reads distance(s):
-//   - directly from one VL53L0X at 0x29, OR
-//   - via a TCA9548A mux at 0x70 (channels 0..3 = FL, FR, RL, RR).
-// Auto-detects which you have wired, so you can start with a single sensor.
+// It scans the I2C bus, then reads distance from one VL53L0X at 0x29 and prints
+// raw / median-filtered / corrected values for calibrating TOF_SCALE and
+// TOF_OFFSET_MM.
+//
+// A TCA9548A mux mode existed here until 2026-08-31; the mux was retired with
+// the encoders it was fitted for. The four corner sensors on the fabricated
+// board use XSHUT re-addressing instead -- see lib/hal_esp32/Vl53l0xArray.h.
 #include <Arduino.h>
 #include <VL53L0X.h>
 #include <Wire.h>
 
-static const uint8_t PIN_SDA = 38;  // matches include/pins.h
+// *** BREADBOARD PINS. THESE ARE NOT include/pins.h. ***
+// On the fabricated Wheel Drive PCB, GPIO38 and GPIO39 are FR BRK and FL BRK --
+// flashing this on that board would drive I2C traffic into two brake lines.
+// The board's real I2C is SDA=GPIO8, SCL=GPIO9.
+static const uint8_t PIN_SDA = 38;
 static const uint8_t PIN_SCL = 39;
-static const uint8_t MUX_ADDR = 0x70;
-static const uint8_t N_CH = 4;
-static const char* CH_NAME[N_CH] = {"FL", "FR", "RL", "RR"};
 
 // --- Calibration knobs (override with -D at build time, then bake into config.h) ---
 #ifndef TOF_TIMING_BUDGET_US
@@ -39,22 +43,8 @@ static uint16_t medianOf(const uint16_t* src, int n) {
   return a[n / 2];
 }
 
-static bool g_mux = false;
-static VL53L0X g_sensor[N_CH];
 static VL53L0X g_single;
 static bool g_single_ok = false;
-static bool g_ch_ok[N_CH] = {false, false, false, false};
-
-static void muxSelect(uint8_t ch) {
-  Wire.beginTransmission(MUX_ADDR);
-  Wire.write(static_cast<uint8_t>(1u << ch));
-  Wire.endTransmission();
-}
-
-static bool i2cPresent(uint8_t addr) {
-  Wire.beginTransmission(addr);
-  return Wire.endTransmission() == 0;
-}
 
 static void i2cScan() {
   Serial.println("# I2C scan:");
@@ -84,18 +74,6 @@ static bool initSensor(VL53L0X& s, const char* label) {
   return ok;
 }
 
-static void printReading(VL53L0X& s, bool ok, const char* label) {
-  Serial.printf("%s=", label);
-  if (!ok) {
-    Serial.print("no-init");
-    return;
-  }
-  const uint16_t mm = s.readRangeSingleMillimeters();
-  if (s.timeoutOccurred()) Serial.print("timeout");
-  else if (mm >= 8000) Serial.print("out-of-range");
-  else Serial.printf("%u mm", mm);
-}
-
 void setup() {
   Serial.begin(115200);
   delay(500);
@@ -106,33 +84,11 @@ void setup() {
   Serial.printf("# SDA=GPIO%u  SCL=GPIO%u  I2C=100kHz\n", PIN_SDA, PIN_SCL);
   i2cScan();
 
-  g_mux = i2cPresent(MUX_ADDR);
-  if (g_mux) {
-    Serial.println("# TCA9548A mux @0x70 detected -> multi-sensor mode");
-    for (uint8_t ch = 0; ch < N_CH; ++ch) {
-      muxSelect(ch);
-      g_ch_ok[ch] = initSensor(g_sensor[ch], CH_NAME[ch]);
-    }
-  } else {
-    Serial.println("# No mux -> single sensor @0x29");
-    g_single_ok = initSensor(g_single, "sensor");
-  }
-  Serial.println("# reading (each line re-checks the bus so a mid-stream capture is enough)");
+  g_single_ok = initSensor(g_single, "sensor");
+  Serial.println("# reading: raw / median / corrected");
 }
 
 void loop() {
-  if (g_mux) {
-    const bool p70 = i2cPresent(MUX_ADDR);
-    Serial.printf("0x70=%c | ", p70 ? 'Y' : 'N');
-    for (uint8_t ch = 0; ch < N_CH; ++ch) {
-      muxSelect(ch);
-      printReading(g_sensor[ch], g_ch_ok[ch], CH_NAME[ch]);
-      Serial.print("  ");
-    }
-    Serial.println();
-    return;
-  }
-
   // Single-sensor calibration view: raw, median-filtered, and corrected.
   static uint16_t win[5];
   static int fill = 0;

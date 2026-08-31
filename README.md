@@ -12,17 +12,6 @@ no changes to the trolleys or the factory floor.
 - **Controller:** ESP32-S3-WROOM-1 **N16R8** (16 MB flash, 8 MB octal PSRAM)
 - **No** LiDAR, camera, ROS 2, SLAM, or mapping.
 
-> **Architecture change in progress (2026-08-04).** With 4× AS5600 wheel encoders and a BNO085 IMU
-> added, control moves to a **Raspberry Pi 5** driving two ESP32s over USB serial (base + arm). The
-> ESP32 is no longer the entire control stack. See
-> [`docs/superpowers/specs/2026-08-04-rpi5-main-controller-design.md`](docs/superpowers/specs/2026-08-04-rpi5-main-controller-design.md)
-> and the [Pi setup runbook](docs/rpi5-setup.md). Everything below still describes the current,
-> working single-ESP firmware — migrate in the order the spec gives.
->
-> **Status note (2026-08-23):** the delivered term prototype did **not** use the Raspberry Pi 5.
-> It runs on the two ESP32s alone — base ↔ arm over Wi-Fi (ESP-NOW); the Pi path above stays the
-> planned next step, and the [`pi/`](pi/) tooling is kept for it.
->
 > **Hardware documentation lives in [`docs/hardware/`](docs/hardware/)** — power-up runbook,
 > component list, per-connector pinouts for all three PCBs (extracted from the KiCad netlists, not
 > inferred), and a fabrication/repair guide. [`docs/hardware-architecture.md`](docs/hardware-architecture.md)
@@ -53,7 +42,7 @@ docking state machine                       arm axes X/Y, flipper servos, clamp
 mecanum mixing, 4× corner ToF centring   ⇄  limit switches, homing
 clamp handoff                             ESP-NOW over Wi-Fi (channel 1)
 
-operator: serial teleop ([teleop.py](teleop.py)) or BLE gamepad ([bench_ble/](bench_ble/))
+operator: BLE gamepad ([bench_ble/](bench_ble/))
 ```
 
 Commercial AMRs don't fit this job: platform AMRs are too tall to get under the trolleys, tow
@@ -116,16 +105,17 @@ pio device monitor -b 115200
 
 Arm subsystem firmware has its own project: [`arm/`](arm/README.md).
 
-## Serial interface (USB-CDC @115200)
+## Operator interface — Xbox gamepad over BLE
 
-Commands in (newline-terminated): `DOCK`, `ABORT`, `UNCLAMP`, `STATUS`.
-Status out is JSON, e.g.:
+**The robot is driven from a gamepad, not a serial console.** `bench_ble/` runs
+Bluepad32, which owns stdin: `Console` is output-only and `Serial` is never
+`begin()`-ed, so **typed commands cannot reach the firmware.** Every operator
+control is a gamepad button. See [`docs/gotchas.md`](docs/gotchas.md) §6.
 
-```json
-{"state":"CENTER_X","corners":[true,true,false,false],"x_mm":142.0,"y_mm":-3.0,
- "theta":0.02,"confirmed":false,"motor_alarm":false,"overcurrent":false,"estop":false}
-```
-(`corners` is `[FL, FR, RL, RR]`.)
+The base prints status to the console as it runs; that is one-way.
+
+> A `DOCK`/`ABORT`/`UNCLAMP`/`STATUS` serial protocol was designed and the
+> parser written, but it never ran on hardware — see **Project history** below.
 
 ## Pin map — ESP32-S3-N16R8
 
@@ -147,20 +137,19 @@ Reserved on the N16R8: **GPIO26–37** (flash + octal PSRAM) and **GPIO19/20** (
 | Wheel speed (SV, PWM) | FL/FR/RL/RR | 4, 5, 6, 7 |
 | Wheel direction (F/R) | FL/FR/RL/RR | 15, 16, 17, 18 |
 | Wheel enable / brake (ganged) | EN / BRK | 8 / 9 |
-| Wheel fault (wire-OR) | ALARM | 10 |
 | Clamp (BTS7960) | RPWM / LPWM / EN | 11 / 12 / 13 |
 | Clamp current sense (ADC1) | IS close / open | 1 / 2 |
 | Limit switches | open / closed | 14 / 21 |
-| E-stop | button | 47 |
 | ToF I²C | SDA / SCL | 38 / 39 |
 
 ## Hardware bring-up checklist (before trusting it under a trolley)
 
-The `hal_esp32` adapters compile against the libraries but are **not yet hardware-validated**. On the
-bench, verify and adjust:
+These adapters were validated on the assembled robot over the 2026 term. Kept as
+a bring-up order for a rebuild, or after a board respin:
 
 1. **PWM API** — a `PwmPin` shim supports Arduino-ESP32 core 2.x *and* 3.x automatically.
-2. **BLD120A polarities** — `F/R` forward sense, and active-low `EN`/`BRK`/`ALARM` (`Bld120aMotor.h`).
+2. **BLD120A polarities** — `F/R` forward sense, and active-low `EN`/`BRK` (`Bld120aMotor.h`). There
+   is no `ALARM`: the driver has no such terminal, only a front-panel LED.
 3. **Mecanum + orient signs** — confirm forward / strafe / yaw directions (`MecanumDrive.cpp`) and the
    `ORIENT` rotate-direction sign in `DockingStateMachine.cpp` (rotate toward the lagging corner).
 4. **ToF corners** — FL/FR/RL/RR on their XSHUT pins (`pins::kTofXSHUT`; `Vl53l0xArray` is the
@@ -168,7 +157,10 @@ bench, verify and adjust:
    **height band** (`makeCornerConfig`).
 5. **Odometry calibration** — measure `max_lin_mm_s` / `max_ang_rad_s` (`makeOdometryCal`); tune the
    centring tolerance/offsets in `makeDockConfig`.
-6. **BTS7960 current scale** — calibrate `amps_per_volt` and `cfg::kClampStallAmps`.
+6. **Per-wheel current sense** — calibrate `cfg::kWheelStallAmps` under a loaded trolley. Note the
+   ACS758 outputs are **not currently wired** to J9/J12/J14/J17, so this reads nothing until they are
+   ([`docs/hardware/components.md`](docs/hardware/components.md) §4). The clamp is on the *arm* board,
+   not this one.
 7. **Dry-run the alignment** and watch the JSON telemetry (`corners`, `x_mm`, `y_mm`, `confirmed`). The
    clamp/arm subsystem is external and validated separately at the `IClamp` handoff.
 
@@ -258,10 +250,28 @@ All photos: [`docs/media/photos/`](docs/media/photos/).
 | [`test/`](test/README.md) | host unit tests (Unity, `pio test -e native`) |
 | [`arm/`](arm/README.md) | vendored arm-subsystem firmware (ESP-NOW slave) |
 | [`KiCad/`](KiCad/README.md) | four custom board projects + fab outputs |
-| [`pi/`](pi/README.md) | Raspberry Pi 5 bridge tooling (planned next step, not used by the delivered prototype) |
 | [`bench_ble/`](bench_ble/README.md) | BLE-gamepad bench firmware |
-| [`tools/`](tools/README.md) | PCB production test, AS5600 tuner, Pi bootstrap |
+| [`tools/`](tools/README.md) | PCB production test |
 | [`docs/`](docs/) | specs, gotchas, hardware references, runbooks, session history, media |
+
+## Project history — what was tried and dropped
+
+Kept because knowing what was *attempted* saves repeating it. None of the below
+is part of the delivered machine.
+
+| Abandoned | What it was | Why it went |
+|---|---|---|
+| **AS5600 wheel encoders** | four magnetic encoders, one per wheel, for closed-loop speed | Never worked on the fabricated board: pin 1 of every 1×04 encoder header is unconnected, and all four parts share address `0x36` on a commoned bus. The sensors and shaft magnets are **still physically mounted on the motors**, unwired and undriven. [`docs/gotchas.md`](docs/gotchas.md) §13 |
+| **TCA9548A / PCA9548A I²C mux** | fitted to give the four encoders separate addresses | Went with the encoders. An external PCA9548-type mux overheated and failed with more than two AS5600 attached. The ToF sensors never needed it — they use XSHUT re-addressing. Board files kept at [`KiCad/PCA9548A Breakout/`](KiCad/PCA9548A%20Breakout/) |
+| **Raspberry Pi 5 as main controller** | Pi 5 driving two ESP32s over USB serial, with a link watchdog | Never used. The delivered prototype runs on the two ESP32s alone, base ↔ arm over ESP-NOW. Design retained at [`docs/superpowers/specs/2026-08-04-rpi5-main-controller-design.md`](docs/superpowers/specs/2026-08-04-rpi5-main-controller-design.md) |
+| **`DOCK`/`ABORT`/`UNCLAMP`/`STATUS` serial protocol** | text commands in, JSON telemetry out | The parser was written but Bluepad32 owns stdin, so it never ran. Operator control is the gamepad. [`docs/gotchas.md`](docs/gotchas.md) §6 |
+| **Hardware E-stop input** | a GPIO for an emergency-stop button | Discussed, never implemented. The red mushroom button on the robot is wired as an **enable** for the 12 V arm rail — [`docs/hardware/startup.md`](docs/hardware/startup.md) §1 |
+| **Base-board clamp driver** | BTS7960 clamp driven from the base ESP | Moved to the arm subsystem. The base pins remain `kNoPin` so the one-ESP firmware still compiles |
+
+Code for the encoders, the mux and the Pi was **deleted on 2026-08-31** rather
+than left to rot — `git log --diff-filter=D` recovers any of it. What was worth
+keeping is the analysis of *why* each failed, which lives in
+[`docs/gotchas.md`](docs/gotchas.md) and [`docs/hardware/`](docs/hardware/).
 
 ## Acknowledgements
 

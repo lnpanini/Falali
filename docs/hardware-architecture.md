@@ -53,7 +53,7 @@ Raspberry Pi 5  ──USB──  ESP-BASE (Wheel Drive PCB)  ──  4× BLD-120
         │ (Bluepad32, BLE)
         ▼
   ESP-BASE (Wheel Drive PCB) ── J4–J7 ── 4× Driver PCB ── 4× BLD-120A ── 4× BLDC
-  ESP32-S3-DevKitC-1 N16R8              (3V3→open-collector)   (24 V)   (15:1, 150 mm)
+  ESP32-S3-DevKitC-1 N16R8              (3V3→open-collector)   (24 V)   (15:1, 152 mm)
         │
         ├── 4× VL53L0X ToF     (XSHUT re-addressing, GPIO4-7)
         ├── 1× BNO085 IMU      (0x4A)
@@ -76,9 +76,9 @@ Raspberry Pi 5  ──USB──  ESP-BASE (Wheel Drive PCB)  ──  4× BLD-120
 2. **The Raspberry Pi 5 is not in the control loop.** The gamepad connects
    directly to the base ESP over BLE and the docking state machine runs on the
    base. The Pi-5-as-brain design (decision log, 2026-08-04) was superseded by
-   the ESP32-S3-only prototype. `pi/` remains in the repo but is not part of the
-   running system. **[HYPOTHESIS — inferred from the firmware's structure and
-   the ESP-NOW move; nobody wrote down the moment the Pi was dropped.]**
+   the ESP32-S3-only prototype. **[VERIFIED — Bryan, 2026-08-31: no Raspberry Pi
+   was ever used.]** The `pi/` tooling and the Pi setup runbook were deleted
+   2026-08-31; the design spec is kept as a dated record.
 
 The encoders never worked on the fabricated board and have been abandoned. There
 is now **no wheel-speed feedback of any kind** — the only drivetrain fault signal
@@ -282,7 +282,7 @@ switching. Nothing was damaged — currents were microamps throughout.
 | Device | Address | Collision handling |
 |---|---|---|
 | 4× VL53L0X ToF | `0x29` ×4 | **XSHUT re-addressing** — held in reset, brought up one at a time (`Vl53l0xArray`) |
-| TCA9548A | `0x70` | fitted for the (now removed) encoders; still reported by `src/pcb_identify.cpp` |
+| ~~TCA9548A~~ | ~~`0x70`~~ | **Removed.** Fitted for the encoders; both retired. `pins::kMuxAddr` and the mux code were deleted 2026-08-31 |
 | BNO085 IMU | `0x4A` | — |
 | ADS1115 | **`0x48`** | ADDR → GND. **Do not leave floating or tie to SDA** — that gives `0x4A` and collides with the IMU |
 

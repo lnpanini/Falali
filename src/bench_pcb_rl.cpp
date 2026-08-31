@@ -1,13 +1,13 @@
 // ONE-OFF bring-up test: the RL corner on the fabricated Wheel Drive PCB.
 //
-// WHY THIS FILE EXISTS, AND WHY IT DOES NOT REUSE bench_bld_drive.h
-// -----------------------------------------------------------------
-// The breadboard pin table in src/bench_bld_drive.h and the netlist-derived map
-// in include/pins.h DISAGREE for the FR and RL corners — the four roles are in
+// WHY THIS FILE TAKES ITS PINS ONLY FROM pins.h
+// ---------------------------------------------
+// The breadboard rigs (removed 2026-08-31) and the netlist-derived map in
+// include/pins.h DISAGREED for the FR and RL corners — the four roles were in
 // opposite order:
 //
-//   bench_bld_drive.h  RL:  BRK=18  EN=17  F/R=16  SV=15
-//   include/pins.h     RL:  SV =18  F/R=17  EN =16  BRK=15
+//   breadboard rig  RL:  BRK=18  EN=17  F/R=16  SV=15
+//   include/pins.h  RL:  SV =18  F/R=17  EN =16  BRK=15
 //
 // Flashing the bench rig against this PCB would send the speed PWM to GPIO15,
 // which the board wires to the driver's BRAKE input, and read GPIO18 (the real

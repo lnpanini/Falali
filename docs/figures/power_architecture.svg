@@ -1,0 +1,177 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 960" width="1240" height="960">
+<defs>
+<marker id="ar" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="4.2" markerHeight="4.2" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#B03A2E"/></marker>
+<marker id="arg" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="4.2" markerHeight="4.2" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#454D55"/></marker>
+<marker id="argn" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="4.2" markerHeight="4.2" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#0F8A70"/></marker>
+</defs>
+<rect width="1240" height="960" fill="#FFFFFF"/>
+<text x="620.0" y="38" font-size="22" fill="#1F2933" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">Power Distribution System Architecture</text>
+<rect x="16" y="58" width="880" height="882" rx="8" fill="#FDF4F3" stroke="#B03A2E" stroke-width="2"/>
+<text x="36" y="88" font-size="15.5" fill="#B03A2E" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">MAIN POWER SYSTEM — 36 V PACK</text>
+<rect x="910" y="58" width="314" height="882" rx="8" fill="#ECF8F5" stroke="#0F8A70" stroke-width="2"/>
+<text x="930" y="88" font-size="15.5" fill="#0F8A70" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">LOGIC POWER SYSTEM</text>
+<rect x="34" y="108" width="190" height="64" rx="5" fill="#FBEAE8" stroke="#B03A2E" stroke-width="1.8"/>
+<text x="129.0" y="137.0" font-size="14.5" fill="#B03A2E" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">36 V BATTERY</text>
+<text x="129.0" y="154.0" font-size="11.5" fill="#4E5862" text-anchor="middle" font-weight="normal" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">10 Ah Li-Ion · BMS</text>
+<rect x="258" y="108" width="164" height="64" rx="5" fill="#FDF6EA" stroke="#C8770F" stroke-width="1.8"/>
+<text x="340.0" y="137.0" font-size="14.5" fill="#C8770F" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">MAIN SWITCH</text>
+<text x="340.0" y="154.0" font-size="11.5" fill="#4E5862" text-anchor="middle" font-weight="normal" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">40 A</text>
+<rect x="456" y="108" width="206" height="64" rx="5" fill="#ECF8F5" stroke="#0F8A70" stroke-width="1.8"/>
+<text x="559.0" y="137.0" font-size="14.5" fill="#0F8A70" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">PROTECTION</text>
+<text x="559.0" y="154.0" font-size="11.5" fill="#4E5862" text-anchor="middle" font-weight="normal" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">reverse-polarity + caps</text>
+<path d="M 224 140.0 L 256 140.0" stroke="#B03A2E" stroke-width="2.4" fill="none" marker-end="url(#ar)"/>
+<path d="M 422 140.0 L 454 140.0" stroke="#B03A2E" stroke-width="2.4" fill="none" marker-end="url(#ar)"/>
+<path d="M 559 172 L 559 212" stroke="#B03A2E" stroke-width="2.4" fill="none" marker-end="url(#ar)"/>
+<rect x="34" y="214" width="844" height="36" rx="3" fill="#B03A2E"/>
+<text x="48" y="237.0" font-size="14" fill="#FFFFFF" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">MAIN 36 V+ BUS</text>
+<rect x="34" y="286" width="400" height="500" rx="6" fill="#FFFFFF" fill-opacity="0.72" stroke="#B03A2E" stroke-width="1.4" stroke-dasharray="6 4"/>
+<rect x="35.8" y="287.8" width="396.4" height="34.4" rx="5" fill="#FBEAE8" stroke="#B03A2E" stroke-width="1.2"/>
+<text x="234.0" y="311" font-size="14" fill="#B03A2E" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">DRIVE TRAIN — 24 V</text>
+<rect x="450" y="286" width="200" height="500" rx="6" fill="#FFFFFF" fill-opacity="0.72" stroke="#2A6BA5" stroke-width="1.4" stroke-dasharray="6 4"/>
+<rect x="451.8" y="287.8" width="196.4" height="34.4" rx="5" fill="#EDF3FA" stroke="#2A6BA5" stroke-width="1.2"/>
+<text x="550.0" y="311" font-size="14" fill="#2A6BA5" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">ARM EXTENSION — 12 V</text>
+<rect x="666" y="286" width="212" height="500" rx="6" fill="#FFFFFF" fill-opacity="0.72" stroke="#C8770F" stroke-width="1.4" stroke-dasharray="6 4"/>
+<rect x="667.8" y="287.8" width="208.4" height="34.4" rx="5" fill="#FDF6EA" stroke="#C8770F" stroke-width="1.2"/>
+<text x="772.0" y="311" font-size="14" fill="#C8770F" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">SERVOS — 5 V</text>
+<path d="M 234.0 250 L 234.0 284" stroke="#B03A2E" stroke-width="2.4" fill="none" marker-end="url(#ar)"/>
+<path d="M 234.0 326 L 234.0 354" stroke="#B03A2E" stroke-width="2.4" fill="none" marker-end="url(#ar)"/>
+<path d="M 234.0 394 L 234.0 424" stroke="#B03A2E" stroke-width="2.4" fill="none" marker-end="url(#ar)"/>
+<path d="M 234.0 478 L 234.0 508" stroke="#B03A2E" stroke-width="2.4" fill="none" marker-end="url(#ar)"/>
+<path d="M 550.0 250 L 550.0 284" stroke="#B03A2E" stroke-width="2.4" fill="none" marker-end="url(#ar)"/>
+<path d="M 550.0 326 L 550.0 354" stroke="#B03A2E" stroke-width="2.4" fill="none" marker-end="url(#ar)"/>
+<path d="M 550.0 394 L 550.0 424" stroke="#B03A2E" stroke-width="2.4" fill="none" marker-end="url(#ar)"/>
+<path d="M 550.0 478 L 550.0 508" stroke="#B03A2E" stroke-width="2.4" fill="none" marker-end="url(#ar)"/>
+<path d="M 772.0 250 L 772.0 284" stroke="#B03A2E" stroke-width="2.4" fill="none" marker-end="url(#ar)"/>
+<path d="M 772.0 326 L 772.0 354" stroke="#B03A2E" stroke-width="2.4" fill="none" marker-end="url(#ar)"/>
+<path d="M 772.0 394 L 772.0 424" stroke="#B03A2E" stroke-width="2.4" fill="none" marker-end="url(#ar)"/>
+<path d="M 772.0 478 L 772.0 508" stroke="#B03A2E" stroke-width="2.4" fill="none" marker-end="url(#ar)"/>
+<rect x="156.0" y="356" width="156" height="36" rx="5" fill="#FDF8EA" stroke="#B8801A" stroke-width="1.8"/>
+<text x="234.0" y="379.0" font-size="14" fill="#B8801A" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">FUSE  30 A</text>
+<rect x="126.0" y="426" width="216" height="50" rx="5" fill="#ECF8F5" stroke="#0F8A70" stroke-width="1.8"/>
+<text x="234.0" y="456.0" font-size="15.5" fill="#0F8A70" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">BUCK  36 → 24 V</text>
+<rect x="44" y="510" width="380" height="30" rx="3" fill="#B03A2E"/>
+<text x="58" y="530.0" font-size="13.5" fill="#FFFFFF" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">24 V DRIVE SUB-BUS</text>
+<path d="M 91.5 542 L 91.5 572" stroke="#B03A2E" stroke-width="2.4" fill="none" marker-end="url(#ar)"/>
+<rect x="49.5" y="574" width="84" height="32" rx="5" fill="#FDF8EA" stroke="#B8801A" stroke-width="1.8"/>
+<text x="91.5" y="595.0" font-size="13" fill="#B8801A" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">10 A</text>
+<path d="M 91.5 608 L 91.5 638" stroke="#B03A2E" stroke-width="2.4" fill="none" marker-end="url(#ar)"/>
+<rect x="43.5" y="640" width="96" height="40" rx="5" fill="#EDF3FA" stroke="#2A6BA5" stroke-width="1.8"/>
+<text x="91.5" y="665.0" font-size="13" fill="#2A6BA5" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">BLD-120A</text>
+<path d="M 91.5 682 L 91.5 708" stroke="#B03A2E" stroke-width="2.4" fill="none" marker-end="url(#ar)"/>
+<circle cx="91.5" cy="736" r="26" fill="#E9F6ED" stroke="#1E8449" stroke-width="2"/>
+<text x="91.5" y="741" font-size="14" fill="#1E8449" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">M1</text>
+<path d="M 186.5 542 L 186.5 572" stroke="#B03A2E" stroke-width="2.4" fill="none" marker-end="url(#ar)"/>
+<rect x="144.5" y="574" width="84" height="32" rx="5" fill="#FDF8EA" stroke="#B8801A" stroke-width="1.8"/>
+<text x="186.5" y="595.0" font-size="13" fill="#B8801A" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">10 A</text>
+<path d="M 186.5 608 L 186.5 638" stroke="#B03A2E" stroke-width="2.4" fill="none" marker-end="url(#ar)"/>
+<rect x="138.5" y="640" width="96" height="40" rx="5" fill="#EDF3FA" stroke="#2A6BA5" stroke-width="1.8"/>
+<text x="186.5" y="665.0" font-size="13" fill="#2A6BA5" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">BLD-120A</text>
+<path d="M 186.5 682 L 186.5 708" stroke="#B03A2E" stroke-width="2.4" fill="none" marker-end="url(#ar)"/>
+<circle cx="186.5" cy="736" r="26" fill="#E9F6ED" stroke="#1E8449" stroke-width="2"/>
+<text x="186.5" y="741" font-size="14" fill="#1E8449" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">M2</text>
+<path d="M 281.5 542 L 281.5 572" stroke="#B03A2E" stroke-width="2.4" fill="none" marker-end="url(#ar)"/>
+<rect x="239.5" y="574" width="84" height="32" rx="5" fill="#FDF8EA" stroke="#B8801A" stroke-width="1.8"/>
+<text x="281.5" y="595.0" font-size="13" fill="#B8801A" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">10 A</text>
+<path d="M 281.5 608 L 281.5 638" stroke="#B03A2E" stroke-width="2.4" fill="none" marker-end="url(#ar)"/>
+<rect x="233.5" y="640" width="96" height="40" rx="5" fill="#EDF3FA" stroke="#2A6BA5" stroke-width="1.8"/>
+<text x="281.5" y="665.0" font-size="13" fill="#2A6BA5" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">BLD-120A</text>
+<path d="M 281.5 682 L 281.5 708" stroke="#B03A2E" stroke-width="2.4" fill="none" marker-end="url(#ar)"/>
+<circle cx="281.5" cy="736" r="26" fill="#E9F6ED" stroke="#1E8449" stroke-width="2"/>
+<text x="281.5" y="741" font-size="14" fill="#1E8449" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">M3</text>
+<path d="M 376.5 542 L 376.5 572" stroke="#B03A2E" stroke-width="2.4" fill="none" marker-end="url(#ar)"/>
+<rect x="334.5" y="574" width="84" height="32" rx="5" fill="#FDF8EA" stroke="#B8801A" stroke-width="1.8"/>
+<text x="376.5" y="595.0" font-size="13" fill="#B8801A" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">10 A</text>
+<path d="M 376.5 608 L 376.5 638" stroke="#B03A2E" stroke-width="2.4" fill="none" marker-end="url(#ar)"/>
+<rect x="328.5" y="640" width="96" height="40" rx="5" fill="#EDF3FA" stroke="#2A6BA5" stroke-width="1.8"/>
+<text x="376.5" y="665.0" font-size="13" fill="#2A6BA5" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">BLD-120A</text>
+<path d="M 376.5 682 L 376.5 708" stroke="#B03A2E" stroke-width="2.4" fill="none" marker-end="url(#ar)"/>
+<circle cx="376.5" cy="736" r="26" fill="#E9F6ED" stroke="#1E8449" stroke-width="2"/>
+<text x="376.5" y="741" font-size="14" fill="#1E8449" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">M4</text>
+<rect x="454.0" y="356" width="192" height="36" rx="5" fill="#FDF6EA" stroke="#C8770F" stroke-width="1.8"/>
+<text x="550.0" y="379.0" font-size="13.5" fill="#C8770F" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">ENABLE SW · 20 A</text>
+<rect x="454.0" y="426" width="192" height="50" rx="5" fill="#ECF8F5" stroke="#0F8A70" stroke-width="1.8"/>
+<text x="550.0" y="456.0" font-size="15.5" fill="#0F8A70" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">BUCK  36 → 12 V</text>
+<rect x="460" y="510" width="180" height="30" rx="3" fill="#2A6BA5"/>
+<text x="474" y="530.0" font-size="13.5" fill="#FFFFFF" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">12 V ARM SUB-BUS</text>
+<path d="M 505.0 542 L 505.0 572" stroke="#B03A2E" stroke-width="2.4" fill="none" marker-end="url(#ar)"/>
+<rect x="457.0" y="574" width="96" height="40" rx="5" fill="#EDF3FA" stroke="#2A6BA5" stroke-width="1.8"/>
+<text x="505.0" y="599.0" font-size="13" fill="#2A6BA5" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">BTS7960</text>
+<path d="M 505.0 616 L 505.0 642" stroke="#B03A2E" stroke-width="2.4" fill="none" marker-end="url(#ar)"/>
+<circle cx="505.0" cy="670" r="26" fill="#E9F6ED" stroke="#1E8449" stroke-width="2"/>
+<text x="505.0" y="675" font-size="14" fill="#1E8449" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">M5</text>
+<path d="M 595.0 542 L 595.0 572" stroke="#B03A2E" stroke-width="2.4" fill="none" marker-end="url(#ar)"/>
+<rect x="547.0" y="574" width="96" height="40" rx="5" fill="#EDF3FA" stroke="#2A6BA5" stroke-width="1.8"/>
+<text x="595.0" y="599.0" font-size="13" fill="#2A6BA5" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">BTS7960</text>
+<path d="M 595.0 616 L 595.0 642" stroke="#B03A2E" stroke-width="2.4" fill="none" marker-end="url(#ar)"/>
+<circle cx="595.0" cy="670" r="26" fill="#E9F6ED" stroke="#1E8449" stroke-width="2"/>
+<text x="595.0" y="675" font-size="14" fill="#1E8449" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">M6</text>
+<rect x="694.0" y="356" width="156" height="36" rx="5" fill="#FDF8EA" stroke="#B8801A" stroke-width="1.8"/>
+<text x="772.0" y="379.0" font-size="14" fill="#B8801A" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">FUSE  8 A</text>
+<rect x="672.0" y="426" width="200" height="50" rx="5" fill="#ECF8F5" stroke="#0F8A70" stroke-width="1.8"/>
+<text x="772.0" y="456.0" font-size="15.5" fill="#0F8A70" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">BUCK  36 → 5 V</text>
+<rect x="676" y="510" width="192" height="30" rx="3" fill="#C8770F"/>
+<text x="690" y="530.0" font-size="13.5" fill="#FFFFFF" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">5 V SERVO SUB-BUS</text>
+<path d="M 772.0 542 L 772.0 572" stroke="#B03A2E" stroke-width="2.4" fill="none" marker-end="url(#ar)"/>
+<rect x="712.0" y="574" width="120" height="40" rx="5" fill="#EDF3FA" stroke="#2A6BA5" stroke-width="1.8"/>
+<text x="772.0" y="599.0" font-size="13" fill="#2A6BA5" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">PCA9685</text>
+<path d="M 772.0 616 L 772.0 640 M 704.5 640 L 839.5 640" stroke="#B03A2E" stroke-width="2" fill="none"/>
+<path d="M 704.5 640 L 704.5 666" stroke="#B03A2E" stroke-width="2" fill="none" marker-end="url(#ar)"/>
+<circle cx="704.5" cy="690" r="21" fill="#E9F6ED" stroke="#1E8449" stroke-width="2"/>
+<text x="704.5" y="695" font-size="13" fill="#1E8449" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">S1</text>
+<path d="M 749.5 640 L 749.5 666" stroke="#B03A2E" stroke-width="2" fill="none" marker-end="url(#ar)"/>
+<circle cx="749.5" cy="690" r="21" fill="#E9F6ED" stroke="#1E8449" stroke-width="2"/>
+<text x="749.5" y="695" font-size="13" fill="#1E8449" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">S2</text>
+<path d="M 794.5 640 L 794.5 666" stroke="#B03A2E" stroke-width="2" fill="none" marker-end="url(#ar)"/>
+<circle cx="794.5" cy="690" r="21" fill="#E9F6ED" stroke="#1E8449" stroke-width="2"/>
+<text x="794.5" y="695" font-size="13" fill="#1E8449" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">S3</text>
+<path d="M 839.5 640 L 839.5 666" stroke="#B03A2E" stroke-width="2" fill="none" marker-end="url(#ar)"/>
+<circle cx="839.5" cy="690" r="21" fill="#E9F6ED" stroke="#1E8449" stroke-width="2"/>
+<text x="839.5" y="695" font-size="13" fill="#1E8449" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">S4</text>
+<path d="M 234.0 788 L 234.0 814" stroke="#454D55" stroke-width="2" fill="none" marker-end="url(#arg)" stroke-dasharray="6 4"/>
+<rect x="34" y="816" width="400" height="32" rx="3" fill="#333A42"/>
+<text x="48" y="837.0" font-size="13.5" fill="#FFFFFF" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">DRIVE GND</text>
+<path d="M 234.0 850 L 234.0 880" stroke="#454D55" stroke-width="2.4" fill="none" marker-end="url(#arg)"/>
+<path d="M 550.0 788 L 550.0 814" stroke="#454D55" stroke-width="2" fill="none" marker-end="url(#arg)" stroke-dasharray="6 4"/>
+<rect x="450" y="816" width="200" height="32" rx="3" fill="#333A42"/>
+<text x="464" y="837.0" font-size="13.5" fill="#FFFFFF" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">ARM GND</text>
+<path d="M 550.0 850 L 550.0 880" stroke="#454D55" stroke-width="2.4" fill="none" marker-end="url(#arg)"/>
+<path d="M 772.0 788 L 772.0 814" stroke="#454D55" stroke-width="2" fill="none" marker-end="url(#arg)" stroke-dasharray="6 4"/>
+<rect x="666" y="816" width="212" height="32" rx="3" fill="#333A42"/>
+<text x="680" y="837.0" font-size="13.5" fill="#FFFFFF" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">SERVO GND</text>
+<path d="M 772.0 850 L 772.0 880" stroke="#454D55" stroke-width="2.4" fill="none" marker-end="url(#arg)"/>
+<rect x="34" y="882" width="844" height="36" rx="3" fill="#22282E"/>
+<text x="48" y="905.0" font-size="14" fill="#FFFFFF" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">MAIN VBat− / GND BUS  ·  single star return</text>
+<rect x="932" y="108" width="270" height="64" rx="5" fill="#E2F4EF" stroke="#0F8A70" stroke-width="1.8"/>
+<text x="1067.0" y="137.0" font-size="14.5" fill="#0F8A70" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">USB 5 V SUPPLY</text>
+<text x="1067.0" y="154.0" font-size="11.5" fill="#4E5862" text-anchor="middle" font-weight="normal" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">separate from the 36 V pack</text>
+<path d="M 1067.0 172 L 1067.0 212" stroke="#0F8A70" stroke-width="2.4" fill="none" marker-end="url(#argn)"/>
+<rect x="932" y="214" width="270" height="36" rx="3" fill="#0F8A70"/>
+<text x="946" y="237.0" font-size="14" fill="#FFFFFF" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">LOGIC 5 V / 3V3 RAIL</text>
+<rect x="932" y="300" width="96" height="70" rx="5" fill="#EDF3FA" stroke="#2A6BA5" stroke-width="1.8"/>
+<text x="980.0" y="332.0" font-size="13.5" fill="#2A6BA5" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">ESP-BASE</text>
+<text x="980.0" y="349.0" font-size="11" fill="#4E5862" text-anchor="middle" font-weight="normal" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">ESP32-S3</text>
+<rect x="1106" y="300" width="96" height="70" rx="5" fill="#EDF3FA" stroke="#2A6BA5" stroke-width="1.8"/>
+<text x="1154.0" y="332.0" font-size="13.5" fill="#2A6BA5" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">ESP-ARM</text>
+<text x="1154.0" y="349.0" font-size="11" fill="#4E5862" text-anchor="middle" font-weight="normal" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">ESP32-S3</text>
+<path d="M 980 250 L 980 298" stroke="#0F8A70" stroke-width="2.4" fill="none" marker-end="url(#argn)"/>
+<path d="M 1154 250 L 1154 298" stroke="#0F8A70" stroke-width="2.4" fill="none" marker-end="url(#argn)"/>
+<text x="1067.0" y="330" font-size="11" fill="#4E5862" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">ESP-NOW</text>
+<path d="M 1028 340 L 1106 340" stroke="#4E5862" stroke-width="1.8" stroke-dasharray="5 4"/>
+<rect x="932" y="418" width="96" height="60" rx="5" fill="#EDF3FA" stroke="#2A6BA5" stroke-width="1.8"/>
+<text x="980.0" y="445.0" font-size="12.5" fill="#2A6BA5" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">ToF · IMU</text>
+<text x="980.0" y="462.0" font-size="11" fill="#4E5862" text-anchor="middle" font-weight="normal" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">current ADC</text>
+<rect x="1106" y="418" width="96" height="60" rx="5" fill="#EDF3FA" stroke="#2A6BA5" stroke-width="1.8"/>
+<text x="1154.0" y="445.0" font-size="12.5" fill="#2A6BA5" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">ToF · limit</text>
+<text x="1154.0" y="462.0" font-size="11" fill="#4E5862" text-anchor="middle" font-weight="normal" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">switches</text>
+<path d="M 980 372 L 980 416" stroke="#0F8A70" stroke-width="2.2" fill="none" marker-end="url(#argn)"/>
+<path d="M 1154 372 L 1154 416" stroke="#0F8A70" stroke-width="2.2" fill="none" marker-end="url(#argn)"/>
+<path d="M 980 480 L 980 522" stroke="#454D55" stroke-width="2" fill="none" marker-end="url(#arg)" stroke-dasharray="6 4"/>
+<path d="M 1154 480 L 1154 522" stroke="#454D55" stroke-width="2" fill="none" marker-end="url(#arg)" stroke-dasharray="6 4"/>
+<rect x="932" y="524" width="270" height="34" rx="3" fill="#0F8A70"/>
+<text x="946" y="546.0" font-size="14" fill="#FFFFFF" text-anchor="start" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">LOGIC GROUND PLANE</text>
+<path d="M 1067.0 560 L 1067.0 618" stroke="#0F8A70" stroke-width="2.4" fill="none" marker-end="url(#argn)"/>
+<rect x="932" y="620" width="270" height="70" rx="5" fill="#D8F0E8" stroke="#0F8A70" stroke-width="1.8"/>
+<text x="1067.0" y="652.0" font-size="13.5" fill="#0F8A70" text-anchor="middle" font-weight="bold" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">★ SINGLE-POINT GROUND TIE</text>
+<text x="1067.0" y="669.0" font-size="11.5" fill="#4E5862" text-anchor="middle" font-weight="normal" font-family="'DejaVu Sans','Helvetica Neue',Helvetica,Arial,sans-serif">the only link between the two systems</text>
+<path d="M 932 655 L 887 655 L 887 900 L 800 900" stroke="#0F8A70" stroke-width="2.4" fill="none" stroke-linejoin="round" marker-end="url(#argn)"/>
+</svg>
